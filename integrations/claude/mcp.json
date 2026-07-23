@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "personus": {
+      "url": "https://your-app.vercel.app/api/mcp"
+    }
+  }
+}

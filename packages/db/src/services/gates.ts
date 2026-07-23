@@ -129,6 +129,42 @@ export function toPersonaSummary(row: {
   };
 }
 
+export interface PublicPersona {
+  uri: string;
+  displayName: string;
+  headline: string;
+  location: string | null;
+  entityType: string;
+  traits: unknown;
+  completenessScore: number;
+}
+
+/**
+ * Curated public projection of a persona — the ONLY shape exposed to external AI
+ * surfaces (MCP, REST/GPT Actions). Strips internal columns (userId, embedding,
+ * deletedAt, contactPreferences, mcp flags). Shared so every surface projects
+ * identically.
+ */
+export function toPublicPersona(row: {
+  uri: string;
+  displayName: string;
+  headline: string | null;
+  location: string | null;
+  entityType: string;
+  traits: unknown;
+  completenessScore: number | null;
+}): PublicPersona {
+  return {
+    uri: row.uri,
+    displayName: row.displayName,
+    headline: row.headline ?? '',
+    location: row.location ?? null,
+    entityType: row.entityType,
+    traits: row.traits,
+    completenessScore: row.completenessScore ?? 0,
+  };
+}
+
 /** Generate a URI slug candidate from a display name (caller ensures uniqueness). */
 export function slugifyName(displayName: string): string {
   const base = displayName

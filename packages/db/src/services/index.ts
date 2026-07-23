@@ -127,5 +127,6 @@ export * from './endorsements';
 export * from './gates';
 export * from './mutations';
 export * from './personas';
+export * from './platform-channels';
 export * from './reference';
 export * from './search';
