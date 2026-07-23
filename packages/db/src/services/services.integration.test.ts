@@ -7,7 +7,7 @@
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { db } from '../index';
-import { users, userTraits } from '../schema';
+import { systemSettings, users, userTraits } from '../schema';
 import {
   hasTestDb,
   isVectorAvailable,
@@ -32,6 +32,7 @@ import {
   listInbox,
   listMyPersonas,
   listPlatformChannels,
+  listSystemSettings,
   NotFoundError,
   resolveBoundCommunity,
   respondToContact,
@@ -42,6 +43,7 @@ import {
   updatePersona,
   updatePersonaEmbedding,
   updatePersonaTraits,
+  updateSystemSetting,
 } from './index';
 
 // A permissive authenticated principal — the CASL gate is unit-tested separately;
@@ -348,6 +350,47 @@ describe.skipIf(!hasTestDb)('service layer (integration)', () => {
       });
       expect(b.id).toBe(a.id); // same row, re-activated
       expect(await listPlatformChannels(admin, String(community.id))).toHaveLength(1);
+    });
+
+    it('a non-member cannot enumerate a community bindings', async () => {
+      const admin = await makeUser(43);
+      const outsider = await makeUser(44);
+      const fp = await createPersona(admin, { displayName: 'Private Guild' });
+      const community = await createCommunity(admin, {
+        name: 'Private Guild',
+        foundingPersonaUri: fp.uri,
+      });
+      await bindPlatformChannel(admin, {
+        communityId: String(community.id),
+        platform: 'discord',
+        externalRef: 'G-secret',
+      });
+      expect(await listPlatformChannels(outsider, String(community.id))).toHaveLength(0);
+      expect(await listPlatformChannels(admin, String(community.id))).toHaveLength(1);
+    });
+  });
+
+  describe('system settings (admin)', () => {
+    it('lists and updates settings, invalidating the cache', async () => {
+      const admin = await makeUser(50); // allowAll grants manage AdminSurface
+      await db.insert(systemSettings).values({
+        key: 'ai.coach_model',
+        value: 'openai/gpt-4o',
+        defaultValue: 'openai/gpt-4o',
+        category: 'ai',
+        valueType: 'string',
+        description: 'coach model',
+      });
+
+      const listed = await listSystemSettings(admin);
+      expect(listed.map((s) => s.key)).toContain('ai.coach_model');
+
+      const updated = await updateSystemSetting(admin, 'ai.coach_model', 'openai/gpt-4o-mini');
+      expect(updated?.value).toBe('openai/gpt-4o-mini');
+
+      // a non-admin ability is refused
+      const nonAdmin = { userId: '1', ability: { can: () => false } };
+      await expect(listSystemSettings(nonAdmin)).rejects.toBeInstanceOf(ForbiddenError);
     });
   });
 });
