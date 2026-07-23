@@ -13,6 +13,7 @@ export type { Column, SQL } from 'drizzle-orm';
 export {
   and,
   asc,
+  cosineDistance,
   count,
   desc,
   eq,

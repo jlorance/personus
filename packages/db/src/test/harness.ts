@@ -18,6 +18,12 @@ import { setDbForTests } from '../index';
 export const hasTestDb = Boolean(process.env.TEST_DATABASE_URL);
 
 let pool: Pool | null = null;
+let vectorAvailable = false;
+
+/** Whether pgvector loaded for this run (false on the plain-Postgres fallback). */
+export function isVectorAvailable(): boolean {
+  return vectorAvailable;
+}
 
 /** All base tables, for TRUNCATE between tests (order-independent via CASCADE). */
 const TABLES = [
@@ -72,9 +78,9 @@ export async function setupTestDb(): Promise<ReturnType<typeof drizzle>> {
     // isn't installed (local plain Postgres), fall back to a vector-free variant:
     // embedding columns become `text` and ivfflat indexes are skipped. The
     // service-layer tests never touch embeddings, so this is faithful for them.
-    let vectorAvailable = true;
     try {
       await client.query('CREATE EXTENSION IF NOT EXISTS vector');
+      vectorAvailable = true;
     } catch {
       vectorAvailable = false;
     }
