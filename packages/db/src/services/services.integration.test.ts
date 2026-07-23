@@ -16,6 +16,7 @@ import {
   teardownTestDb,
 } from '../test/harness';
 import {
+  bindPlatformChannel,
   createCommunity,
   createContactRequest,
   createEndorsement,
@@ -30,9 +31,12 @@ import {
   listEndorsementsForPersona,
   listInbox,
   listMyPersonas,
+  listPlatformChannels,
   NotFoundError,
+  resolveBoundCommunity,
   respondToContact,
   retractEndorsement,
+  revokePlatformChannel,
   type ServicePrincipal,
   searchPersonas,
   updatePersona,
@@ -287,6 +291,63 @@ describe.skipIf(!hasTestDb)('service layer (integration)', () => {
       await expect(
         createContactRequest(sender, { fromPersonaUri: sp.uri, toPersonaUri: 'nope', reason: 'x' }),
       ).rejects.toBeInstanceOf(NotFoundError);
+    });
+  });
+
+  describe('platform channel bindings', () => {
+    it('binds, resolves, lists and revokes — admin only', async () => {
+      const admin = await makeUser(40);
+      const outsider = await makeUser(41);
+      const fp = await createPersona(admin, { displayName: 'Bot Guild' });
+      const community = await createCommunity(admin, {
+        name: 'Bot Guild',
+        foundingPersonaUri: fp.uri,
+      });
+
+      const binding = await bindPlatformChannel(admin, {
+        communityId: String(community.id),
+        platform: 'slack',
+        externalRef: 'C12345',
+      });
+      expect(binding.status).toBe('active');
+
+      expect(await resolveBoundCommunity('slack', 'C12345')).toEqual({
+        communityId: String(community.id),
+      });
+      expect(await listPlatformChannels(admin, String(community.id))).toHaveLength(1);
+
+      // a non-admin cannot bind or revoke
+      await expect(
+        bindPlatformChannel(outsider, {
+          communityId: String(community.id),
+          platform: 'discord',
+          externalRef: 'G999',
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+
+      expect(await revokePlatformChannel(admin, binding.publicId)).toBe(true);
+      expect(await resolveBoundCommunity('slack', 'C12345')).toBeNull();
+    });
+
+    it('re-binding the same platform channel re-activates rather than duplicating', async () => {
+      const admin = await makeUser(42);
+      const fp = await createPersona(admin, { displayName: 'Rebind Guild' });
+      const community = await createCommunity(admin, {
+        name: 'Rebind Guild',
+        foundingPersonaUri: fp.uri,
+      });
+      const a = await bindPlatformChannel(admin, {
+        communityId: String(community.id),
+        platform: 'slack',
+        externalRef: 'CDUP',
+      });
+      const b = await bindPlatformChannel(admin, {
+        communityId: String(community.id),
+        platform: 'slack',
+        externalRef: 'CDUP',
+      });
+      expect(b.id).toBe(a.id); // same row, re-activated
+      expect(await listPlatformChannels(admin, String(community.id))).toHaveLength(1);
     });
   });
 });

@@ -24,6 +24,17 @@ export function buildAgentRequestContext(
 }
 
 /**
+ * Wrap an already-scoped principal (e.g. a platform-bot or MCP principal that is
+ * not a user actor) into a RequestContext, without the asAgent user-delegation
+ * step. Use for non-user actors that are already at their intended authority.
+ */
+export function contextWithPrincipal(
+  principal: Principal,
+): RequestContext<PersonusRequestContextShape> {
+  return new RequestContext<PersonusRequestContextShape>([[PRINCIPAL_CTX_KEY, principal]]);
+}
+
+/**
  * Read the principal off a tool's request context. In non-production, if no
  * principal was threaded (e.g. the CopilotKit demo path without a session),
  * falls back to a narrow dev principal so conversational tool calls degrade

@@ -13,23 +13,19 @@
  */
 
 import { getAnonymousMcpPrincipal } from '@personus/auth/principal';
-import { getPersonaByUri, listCommunities, searchPersonas } from '@personus/db/services';
+import {
+  getPersonaByUri,
+  listCommunities,
+  searchPersonas,
+  toPublicPersona,
+} from '@personus/db/services';
 import { flags } from '@personus/flags';
 import { logger } from '@personus/logger';
 import { NextResponse } from 'next/server';
 
-/** Curated public projection — never leak internal columns to MCP callers. */
+/** Shared curated public projection — never leak internal columns to MCP callers. */
 function publicPersona(row: Awaited<ReturnType<typeof getPersonaByUri>>) {
-  if (!row) return null;
-  return {
-    uri: row.uri,
-    displayName: row.displayName,
-    headline: row.headline,
-    location: row.location,
-    entityType: row.entityType,
-    traits: row.traits,
-    completenessScore: row.completenessScore,
-  };
+  return row ? toPublicPersona(row) : null;
 }
 
 export const runtime = 'nodejs';

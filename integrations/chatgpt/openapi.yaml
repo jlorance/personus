@@ -1,0 +1,95 @@
+openapi: 3.1.0
+info:
+  title: Personus Discovery
+  description: >-
+    Find people by what they can do, from the Personus register. Public,
+    read-only capability search and persona lookup.
+  version: 0.1.0
+servers:
+  - url: https://your-app.vercel.app
+paths:
+  /api/discover:
+    get:
+      operationId: discoverPeople
+      summary: Search the Personus register for people matching a capability.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Natural-language description of the capability needed.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Max results (1-25, default 5).
+          schema:
+            type: integer
+            default: 5
+      responses:
+        '200':
+          description: Matching personas, ranked, with endorsement counts.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query:
+                    type: string
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PersonaSummary'
+  /api/persona/{uri}:
+    get:
+      operationId: getPersona
+      summary: Get the public detail for one persona by its URI.
+      parameters:
+        - name: uri
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The persona's public projection.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicPersona'
+        '404':
+          description: Not found or not public.
+components:
+  schemas:
+    PersonaSummary:
+      type: object
+      properties:
+        uri:
+          type: string
+        displayName:
+          type: string
+        headline:
+          type: string
+        location:
+          type: string
+          nullable: true
+        endorsements:
+          type: integer
+    PublicPersona:
+      type: object
+      properties:
+        uri:
+          type: string
+        displayName:
+          type: string
+        headline:
+          type: string
+        location:
+          type: string
+          nullable: true
+        entityType:
+          type: string
+        traits:
+          type: object
+        completenessScore:
+          type: integer

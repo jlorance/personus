@@ -19,7 +19,7 @@ import { UnauthorizedError } from '@personus/db/services';
 import { serverAuth } from './index';
 import type { AuthUser } from './provider';
 
-export type ActorType = 'user' | 'system' | 'agent' | 'webhook' | 'mcp-anonymous';
+export type ActorType = 'user' | 'system' | 'agent' | 'webhook' | 'mcp-anonymous' | 'platform-bot';
 
 export interface Principal {
   actorId: string;
@@ -167,6 +167,33 @@ export function getAnonymousMcpPrincipal(req: Request): Principal {
     ]),
     networkDepth: 1,
     mcpClient: { clientId: clientHash, tier: 'anonymous', tokenIssuedAt: new Date() },
+  };
+}
+
+/**
+ * Narrow Principal for an inbound platform-bot message (Slack/Discord/Telegram).
+ * Public read only (personas + communities), networkDepth 1 — the same trust
+ * level as an anonymous MCP caller. `senderRef` is the platform user id, hashed
+ * into the actorId for audit traceability without storing PII.
+ */
+export function getPlatformPrincipal(platform: string, senderRef: string): Principal {
+  const hash = btoa(`${platform}:${senderRef}`)
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .slice(0, 16);
+  return {
+    actorId: `platform:${platform}:${hash}`,
+    // A platform bot is an anonymous external actor with no base user — its own
+    // actorType, NOT 'agent' (which implies a user-delegation chain that doesn't exist).
+    actorType: 'platform-bot',
+    userId: null,
+    authSubjectId: null,
+    email: null,
+    role: 'user',
+    ability: buildNarrowAbility([
+      ['read', 'Persona'],
+      ['read', 'Community'],
+    ]),
+    networkDepth: 1,
   };
 }
 
