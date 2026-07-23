@@ -37,6 +37,8 @@
     "CLERK_SECRET_KEY",
     "OPENAI_API_KEY",
     "MASTRA_LOG_LEVEL",
+    "LOG_LEVEL",
+    "CLERK_WEBHOOK_SECRET",
     "NODE_ENV"
   ],
   "globalDependencies": ["tsconfig.json", ".env"]

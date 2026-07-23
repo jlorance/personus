@@ -6,6 +6,7 @@
  * credential-free boot path (health route, local dev without keys).
  */
 
+import { Webhook } from 'svix';
 import type { AuthProvider, AuthUser, Organization, ServerAuth, WebhookEvent } from './provider';
 
 function mapClerkUser(u: {
@@ -71,11 +72,22 @@ export class ClerkProvider implements AuthProvider {
   }
 
   verifyWebhook(payload: string, headers: Record<string, string>): WebhookEvent | null {
-    // Svix-based verification is wired in the webhook route handler (later pass).
-    // Kept on the interface so provider parity holds; returns null when unverified.
-    void payload;
-    void headers;
-    return null;
+    // Clerk signs webhooks with Svix. Verify the HMAC over the raw body using
+    // CLERK_WEBHOOK_SECRET before trusting any event. Returns null when the
+    // secret is unset or the signature fails — the caller then rejects the request.
+    const secret = process.env.CLERK_WEBHOOK_SECRET;
+    if (!secret) return null;
+    try {
+      const wh = new Webhook(secret);
+      const evt = wh.verify(payload, {
+        'svix-id': headers['svix-id'] ?? '',
+        'svix-timestamp': headers['svix-timestamp'] ?? '',
+        'svix-signature': headers['svix-signature'] ?? '',
+      }) as { type: string; data: Record<string, unknown> };
+      return { type: evt.type, data: evt.data };
+    } catch {
+      return null;
+    }
   }
 }
 

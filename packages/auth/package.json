@@ -15,7 +15,8 @@
     "@clerk/nextjs": "^6.37.3",
     "@personus/authz": "workspace:*",
     "@personus/db": "workspace:*",
-    "@personus/logger": "workspace:*"
+    "@personus/logger": "workspace:*",
+    "svix": "^1.45.1"
   },
   "devDependencies": {
     "@personus/typescript-config": "workspace:*",
