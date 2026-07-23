@@ -130,3 +130,4 @@ export * from './personas';
 export * from './platform-channels';
 export * from './reference';
 export * from './search';
+export * from './settings.service';
