@@ -32,5 +32,6 @@ AI-native capability-discovery network. Monorepo (Turborepo + Bun workspaces).
 
 ## Testing
 - Unit tests run everywhere: `bun run test` (Turbo) or `bun run test:coverage` (root Vitest, coverage).
-- **Integration tests** (`packages/db/src/services/services.integration.test.ts`) exercise the service layer against a **real Postgres+pgvector**. They run only when `TEST_DATABASE_URL` is set (CI provides a `pgvector/pgvector` service); otherwise they skip. The harness (`packages/db/src/test/harness.ts`) applies the committed migration, and falls back to a vector-free DDL on plain Postgres for local runs.
+- **Integration tests** (`packages/db/src/services/services.integration.test.ts`) exercise the service layer against a **real Postgres 17 + pgvector**. They run only when `TEST_DATABASE_URL` is set (CI uses the `pgvector/pgvector:pg17` service); otherwise they skip. The harness (`packages/db/src/test/harness.ts`) applies the committed migration; if pgvector is unavailable it falls back to a vector-free DDL so the suite still runs on plain Postgres.
+- Local run: `brew install postgresql@17 pgvector`, `initdb` a throwaway cluster, `createdb`, then `TEST_DATABASE_URL=… bun run test:coverage`. Verified locally on PostgreSQL 17 + pgvector 0.8.5 (real `vector(1536)` columns + `ivfflat` indexes).
 - Coverage: pure logic ~100% (`gates.ts`); the service layer is ~93% under the integration suite. Agents and Next routes still need e2e coverage.
