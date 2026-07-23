@@ -117,3 +117,9 @@ export async function updatePersonaTraits(
 
   return updated ?? null;
 }
+
+export * from './mutations';
+// ─── Re-exports (search + discovery/recommender mutations) ────────────────────
+// Placed at the bottom so the classes/types above are defined before these
+// modules (which import from here) are evaluated.
+export * from './search';
