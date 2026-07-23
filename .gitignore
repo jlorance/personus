@@ -23,6 +23,9 @@ next-env.d.ts
 coverage/
 artillery-report*.json
 artillery-report*.html
+test-results/
+playwright-report/
+.playwright/
 
 # drizzle local
 packages/db/.env.local

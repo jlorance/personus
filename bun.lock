@@ -64,6 +64,7 @@
       },
       "devDependencies": {
         "@personus/typescript-config": "workspace:*",
+        "@playwright/test": "^1.49.1",
         "@tailwindcss/postcss": "^4.0.0",
         "@types/node": "^22.10.5",
         "@types/react": "^19.0.6",

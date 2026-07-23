@@ -11,14 +11,16 @@ export function ThemeToggle() {
   useEffect(() => setMounted(true), []);
 
   const isDark = resolvedTheme === 'dark';
+  // Everything theme-derived must be stable until mounted — otherwise the server
+  // markup (no resolved theme) and the client markup disagree and React warns.
+  const label = !mounted ? 'Toggle theme' : isDark ? 'Switch to light mode' : 'Switch to dark mode';
   return (
     <Button
       variant="ghost"
       size="icon"
-      aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+      aria-label={label}
       onClick={() => setTheme(isDark ? 'light' : 'dark')}
     >
-      {/* Render a stable icon until mounted to avoid hydration mismatch */}
       {mounted && isDark ? <Sun /> : <Moon />}
     </Button>
   );
