@@ -1,5 +1,6 @@
 'use server';
 
+import { embedText } from '@personus/ai';
 import { getAnonymousMcpPrincipal, getOptionalPrincipal } from '@personus/auth/principal';
 import { searchPersonas } from '@personus/db/services';
 import { logger } from '@personus/logger';
@@ -25,7 +26,15 @@ export async function searchAction(_prev: SearchState, formData: FormData): Prom
     const principal =
       (await getOptionalPrincipal()) ??
       getAnonymousMcpPrincipal(new Request('http://local/explore'));
-    const rows = await searchPersonas(principal, { query, maxResults: 12 });
+
+    // Prefer semantic ranking; embedText returns null without an API key, in
+    // which case searchPersonas falls back to text matching.
+    const queryEmbedding = (await embedText(query)) ?? undefined;
+    let rows = await searchPersonas(principal, { query, maxResults: 12, queryEmbedding });
+    // If semantic search found nothing (e.g. no personas embedded yet), retry text.
+    if (queryEmbedding && rows.length === 0) {
+      rows = await searchPersonas(principal, { query, maxResults: 12 });
+    }
     const results: LedgerEntry[] = rows.map((r) => ({
       uri: r.uri,
       displayName: r.displayName,

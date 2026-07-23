@@ -19,5 +19,6 @@ export const mastra = new Mastra({
 });
 
 export { personaCoachAgent, discoveryAgent, recommenderAgent };
+export { embedPersona, embedText, personaEmbeddingText } from './embeddings';
 export { buildChannelsConfig, resolvePlatformChannels } from './platform-channels';
 export { buildAgentRequestContext, getToolPrincipal, PRINCIPAL_CTX_KEY } from './principal-context';

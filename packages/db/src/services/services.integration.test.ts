@@ -8,7 +8,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { db } from '../index';
 import { users, userTraits } from '../schema';
-import { hasTestDb, resetTables, setupTestDb, teardownTestDb } from '../test/harness';
+import {
+  hasTestDb,
+  isVectorAvailable,
+  resetTables,
+  setupTestDb,
+  teardownTestDb,
+} from '../test/harness';
 import {
   createCommunity,
   createContactRequest,
@@ -30,6 +36,7 @@ import {
   type ServicePrincipal,
   searchPersonas,
   updatePersona,
+  updatePersonaEmbedding,
   updatePersonaTraits,
 } from './index';
 
@@ -115,6 +122,31 @@ describe.skipIf(!hasTestDb)('service layer (integration)', () => {
       const b = await createPersona(user, { displayName: 'Same Name' });
       expect(a.uri).toBe('same-name');
       expect(b.uri).not.toBe(a.uri);
+    });
+
+    it('ranks by cosine similarity when a query embedding is supplied', async (ctx) => {
+      if (!isVectorAvailable()) return ctx.skip(); // plain-Postgres fallback: no pgvector
+
+      const user = await makeUser(7);
+      const a = await createPersona(user, { displayName: 'Vector A', visibility: 'public' });
+      const b = await createPersona(user, { displayName: 'Vector B', visibility: 'public' });
+
+      // Orthonormal basis vectors so ordering is unambiguous.
+      const dim = 1536;
+      const unit = (i: number) => Array.from({ length: dim }, (_, k) => (k === i ? 1 : 0));
+      await updatePersonaEmbedding(user, a.uri, unit(0));
+      await updatePersonaEmbedding(user, b.uri, unit(1));
+
+      // Query leans toward A.
+      const query = Array.from({ length: dim }, (_, k) => (k === 0 ? 0.9 : k === 1 ? 0.1 : 0));
+      const results = await searchPersonas(user, {
+        query: '',
+        queryEmbedding: query,
+        maxResults: 10,
+      });
+
+      expect(results.map((r) => r.uri)).toEqual([a.uri, b.uri]); // A ranks first
+      expect(results[0].similarity ?? 0).toBeGreaterThan(results[1].similarity ?? 0);
     });
 
     it('updates base fields and traits, and denies non-owners', async () => {
