@@ -17,9 +17,9 @@
       "version": "0.0.0",
       "dependencies": {
         "@personus/auth": "workspace:*",
+        "@personus/authz": "workspace:*",
         "@personus/constants": "workspace:*",
         "@personus/db": "workspace:*",
-        "@personus/flags": "workspace:*",
         "@personus/logger": "workspace:*",
         "next": "16.2.11",
         "react": "19.2.0",
@@ -50,6 +50,7 @@
         "@personus/flags": "workspace:*",
         "@personus/logger": "workspace:*",
         "@personus/notifications": "workspace:*",
+        "@personus/validations": "workspace:*",
         "@radix-ui/react-slot": "^1.1.2",
         "@radix-ui/react-tabs": "^1.1.3",
         "class-variance-authority": "^0.7.1",

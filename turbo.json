@@ -39,6 +39,12 @@
     "MASTRA_LOG_LEVEL",
     "LOG_LEVEL",
     "CLERK_WEBHOOK_SECRET",
+    "SLACK_BOT_TOKEN",
+    "SLACK_SIGNING_SECRET",
+    "DISCORD_BOT_TOKEN",
+    "DISCORD_PUBLIC_KEY",
+    "TELEGRAM_BOT_TOKEN",
+    "TELEGRAM_WEBHOOK_SECRET",
     "NODE_ENV"
   ],
   "globalDependencies": ["tsconfig.json", ".env"]

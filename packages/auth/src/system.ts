@@ -17,13 +17,13 @@ export const seedActor: SystemActorDef = {
   ]),
 };
 
-/** Embeddings backfill worker. */
+/** Embeddings backfill worker — reads persona content, writes only the vector index. */
 export const embeddingsWorker: SystemActorDef = {
   actorId: 'system:embeddings',
   actorType: 'system',
   ability: buildNarrowAbility([
     ['read', 'Persona'],
-    ['update', 'Persona'],
+    ['index', 'Persona'],
   ]),
 };
 

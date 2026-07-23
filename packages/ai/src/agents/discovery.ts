@@ -12,6 +12,7 @@ import {
   getPersonaByUri,
   listCommunities,
   searchPersonas,
+  toPublicPersona,
 } from '@personus/db/services';
 import { getSetting } from '@personus/db/settings';
 import { z } from 'zod';
@@ -27,7 +28,12 @@ const searchTool = createTool({
   }),
   execute: async (inputData, ctx) =>
     runAuditedTool('personus_search', ctx, inputData, (principal) =>
-      searchPersonas(principal, { query: inputData.query, maxResults: inputData.maxResults }),
+      searchPersonas(principal, {
+        query: inputData.query,
+        maxResults: inputData.maxResults,
+        // External callers (no user id) only see personas that opted into MCP.
+        requireMcpEnabled: !principal.userId,
+      }),
     ),
 });
 
@@ -37,8 +43,9 @@ const getPersonaTool = createTool({
   inputSchema: z.object({ personaUri: z.string() }),
   execute: async (inputData, ctx) =>
     runAuditedTool('personus_get_persona', ctx, inputData, async (principal) => {
-      const p = await getPersonaByUri(principal, inputData.personaUri);
-      return p ?? { error: 'Persona not found' };
+      const p = await getPersonaByUri(principal, inputData.personaUri, !principal.userId);
+      // Project to the public shape — never put internal columns in the LLM context.
+      return p ? toPublicPersona(p) : { error: 'Persona not found' };
     }),
 });
 

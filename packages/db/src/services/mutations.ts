@@ -16,11 +16,7 @@ import {
   shadowPersonas,
 } from '../schema';
 import { endorsementTargetValid } from './gates';
-import { ForbiddenError, NotFoundError, type ServicePrincipal } from './index';
-
-function tag(p: ServicePrincipal): string {
-  return p.userId ? `user:${p.userId}` : `agent:anonymous`;
-}
+import { ForbiddenError, NotFoundError, type ServicePrincipal, principalTag as tag } from './index';
 
 /** Create a mediated contact request. Stores NO raw contact details (ContactRelay resolves delivery). */
 export async function createContactRequest(

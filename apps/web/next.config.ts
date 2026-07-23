@@ -14,6 +14,7 @@ const nextConfig: NextConfig = {
     '@personus/notifications',
     '@personus/timeout',
     '@personus/types',
+    '@personus/validations',
   ],
   // @neondatabase/serverless + Mastra are server-only; keep them external to the
   // server bundle so they aren't traced into edge/client output.

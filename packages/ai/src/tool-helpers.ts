@@ -16,11 +16,11 @@ export async function runAuditedTool<R>(
   ctx: unknown,
   params: Record<string, unknown>,
   body: (principal: ReturnType<typeof getToolPrincipal>) => Promise<R>,
-): Promise<R | { error: string }> {
+): Promise<R | { success: false; error: string }> {
   const principal = getToolPrincipal(ctx as never);
   let outcome: 'allowed' | 'denied' = 'allowed';
   let reason: AgentAuditReason = 'ok';
-  let result: R | { error: string };
+  let result: R | { success: false; error: string };
   try {
     result = await body(principal);
     if (result && typeof result === 'object' && 'error' in result) {
@@ -31,7 +31,7 @@ export async function runAuditedTool<R>(
   } catch (err) {
     outcome = 'denied';
     reason = err instanceof ForbiddenError ? 'forbidden' : 'tool-error';
-    result = { error: 'Tool execution failed' };
+    result = { success: false as const, error: 'Tool execution failed' };
   }
   await emitAgentAudit({ toolName, principal, outcome, reason, params });
   return result;

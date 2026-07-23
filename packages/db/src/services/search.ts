@@ -11,6 +11,7 @@
 import { db } from '../index';
 import { and, cosineDistance, eq, ilike, isNotNull, isNull, or, type SQL, sql } from '../orm';
 import { endorsements, personas } from '../schema';
+import { canViewPersona, type Viewer } from './gates';
 import { ForbiddenError, type ServicePrincipal } from './index';
 
 export interface PersonaSearchResult {
@@ -28,6 +29,13 @@ export interface SearchOptions {
   maxResults?: number;
   /** 1536-dim query embedding. When present, results are ranked by cosine similarity. */
   queryEmbedding?: number[];
+  /**
+   * Restrict to personas that opted into AI/MCP exposure (`mcpEnabled = true`).
+   * External agent surfaces (MCP, REST discovery, platform bots) MUST pass true;
+   * human web surfaces pass false and gate on `visibility` only. `visibility`
+   * governs human viewing; `mcpEnabled` is the separate agent-exposure opt-in.
+   */
+  requireMcpEnabled?: boolean;
 }
 
 /** Principal-aware visibility filter. depth 1 → public only; depth 2 → +authenticated/community. */
@@ -47,6 +55,7 @@ export async function searchPersonas(
 
   const depth = principal.networkDepth ?? 1;
   const limit = Math.min(Math.max(opts.maxResults ?? 3, 1), 25);
+  const mcpFilter = opts.requireMcpEnabled ? eq(personas.mcpEnabled, true) : undefined;
 
   const endorsementCount = sql<number>`(
     select count(*)::int from ${endorsements}
@@ -70,7 +79,12 @@ export async function searchPersonas(
       })
       .from(personas)
       .where(
-        and(isNull(personas.deletedAt), visibilityFilter(depth), isNotNull(personas.embedding)),
+        and(
+          isNull(personas.deletedAt),
+          visibilityFilter(depth),
+          isNotNull(personas.embedding),
+          mcpFilter,
+        ),
       )
       .orderBy(sql`${similarity} desc`)
       .limit(limit);
@@ -78,7 +92,9 @@ export async function searchPersonas(
   }
 
   // Text path: ILIKE over the human-readable fields, ranked by completeness.
-  const q = `%${opts.query.trim()}%`;
+  // Escape LIKE metacharacters so a query of "%" can't match everything / scan.
+  const escaped = opts.query.trim().replace(/[%_\\]/g, '\\$&');
+  const q = `%${escaped}%`;
   const textMatch = or(
     ilike(personas.displayName, q),
     ilike(personas.headline, q),
@@ -93,7 +109,7 @@ export async function searchPersonas(
       endorsementCount,
     })
     .from(personas)
-    .where(and(isNull(personas.deletedAt), visibilityFilter(depth), textMatch))
+    .where(and(isNull(personas.deletedAt), visibilityFilter(depth), textMatch, mcpFilter))
     .orderBy(sql`${personas.completenessScore} desc nulls last`)
     .limit(limit);
 
@@ -101,16 +117,29 @@ export async function searchPersonas(
 }
 
 /**
- * Write a persona's embedding vector. Derived index data (not user content), so
- * it requires only the CASL `update Persona` ability — no ownership check — which
- * lets the embeddings worker (a system actor) backfill on everyone's behalf.
+ * Write a persona's embedding vector (derived search-index data, not user
+ * content). Allowed for the embeddings worker (CASL `index Persona`) OR the
+ * persona's own owner — but NOT an arbitrary principal that merely holds
+ * `update Persona`, so a delegated editing agent can't poison others' vectors.
  */
 export async function updatePersonaEmbedding(
   principal: ServicePrincipal,
   uri: string,
   embedding: number[],
 ): Promise<boolean> {
-  if (!principal.ability.can('update', 'Persona')) throw new ForbiddenError();
+  const isWorker = principal.ability.can('index', 'Persona');
+  if (!isWorker) {
+    // Non-worker path requires ownership of the persona.
+    if (!principal.userId || !principal.ability.can('update', 'Persona'))
+      throw new ForbiddenError();
+    const [owner] = await db
+      .select({ userId: personas.userId })
+      .from(personas)
+      .where(and(eq(personas.uri, uri), isNull(personas.deletedAt)))
+      .limit(1);
+    if (!owner || String(owner.userId) !== principal.userId) throw new ForbiddenError();
+  }
+
   const updated = await db
     .update(personas)
     .set({ embedding, updatedAt: new Date() })
@@ -119,10 +148,15 @@ export async function updatePersonaEmbedding(
   return updated.length > 0;
 }
 
-/** Full persona load by uri, visibility-gated. Returns null if not visible. */
+/**
+ * Full persona load by uri, visibility-gated. Returns null if not visible.
+ * Pass `requireMcpEnabled` from external agent surfaces so an owner who hasn't
+ * opted a persona into MCP exposure isn't surfaced to bots/MCP/REST callers.
+ */
 export async function getPersonaByUri(
   principal: ServicePrincipal & { networkDepth?: 1 | 2 },
   uri: string,
+  requireMcpEnabled = false,
 ): Promise<typeof personas.$inferSelect | null> {
   if (!principal.ability.can('read', 'Persona')) return null;
   const [row] = await db
@@ -131,11 +165,10 @@ export async function getPersonaByUri(
     .where(and(eq(personas.uri, uri), isNull(personas.deletedAt)))
     .limit(1);
   if (!row) return null;
+  if (requireMcpEnabled && row.mcpEnabled !== true) return null;
 
-  const depth = principal.networkDepth ?? 1;
-  const allowed =
-    row.visibility === 'public' ||
-    (depth >= 2 && (row.visibility === 'authenticated' || row.visibility === 'community')) ||
-    (principal.userId != null && String(row.userId) === principal.userId);
-  return allowed ? row : null;
+  const viewer: Viewer = { userId: principal.userId, networkDepth: principal.networkDepth ?? 1 };
+  return canViewPersona(viewer, { visibility: row.visibility, ownerUserId: String(row.userId) })
+    ? row
+    : null;
 }

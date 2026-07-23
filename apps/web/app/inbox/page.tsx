@@ -1,15 +1,10 @@
-import { getOptionalPrincipal } from '@personus/auth/principal';
 import { listInbox } from '@personus/db/services';
 import { SignedOut } from '@/components/signed-out';
+import { getPagePrincipal } from '@/lib/require-principal';
 import { respondAction } from './actions';
 
 export default async function InboxPage() {
-  let principal = null;
-  try {
-    principal = await getOptionalPrincipal();
-  } catch {
-    principal = null;
-  }
+  const principal = await getPagePrincipal();
 
   let items: Awaited<ReturnType<typeof listInbox>> = [];
   if (principal) {

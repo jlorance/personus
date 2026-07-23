@@ -24,20 +24,29 @@ export async function listSystemSettings(
 }
 
 /**
- * Update a setting's value (admin only). The value's runtime type must match the
- * row's declared `valueType`; callers coerce strings/booleans/numbers before
- * passing them in.
+ * Update a setting from a raw (string) form value (admin only). The value is
+ * coerced using the setting's OWN stored `valueType` — never a client-supplied
+ * type — so a tampered form can't write a mismatched JSONB shape.
  */
 export async function updateSystemSetting(
   principal: ServicePrincipal,
   key: string,
-  value: unknown,
+  rawValue: string,
 ): Promise<SystemSetting | null> {
   if (!principal.ability.can('manage', 'AdminSurface')) throw new ForbiddenError();
+
+  const [existing] = await db
+    .select({ valueType: systemSettings.valueType })
+    .from(systemSettings)
+    .where(eq(systemSettings.key, key))
+    .limit(1);
+  if (!existing) return null;
+
+  const coerced = coerceSettingValue(existing.valueType, rawValue);
   const [updated] = await db
     .update(systemSettings)
     .set({
-      value: value as SystemSetting['value'],
+      value: coerced as SystemSetting['value'],
       updatedBy: principal.userId ? `user:${principal.userId}` : 'system',
       updatedAt: new Date(),
     })

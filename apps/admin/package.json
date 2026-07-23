@@ -11,9 +11,9 @@
   },
   "dependencies": {
     "@personus/auth": "workspace:*",
+    "@personus/authz": "workspace:*",
     "@personus/constants": "workspace:*",
     "@personus/db": "workspace:*",
-    "@personus/flags": "workspace:*",
     "@personus/logger": "workspace:*",
     "next": "16.2.11",
     "react": "19.2.0",

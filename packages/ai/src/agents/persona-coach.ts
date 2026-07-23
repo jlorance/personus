@@ -12,38 +12,11 @@ import { createTool } from '@mastra/core/tools';
 import { db } from '@personus/db';
 import { and, eq, isNull } from '@personus/db/orm';
 import { personas, traitTaxonomies } from '@personus/db/schema';
-import { ForbiddenError, updatePersona, updatePersonaTraits } from '@personus/db/services';
+import { updatePersona, updatePersonaTraits } from '@personus/db/services';
 import { getSetting } from '@personus/db/settings';
 import { z } from 'zod';
-import { type AgentAuditReason, emitAgentAudit } from '../agent-audit';
 import { calculateCompleteness } from '../completeness';
-import { getToolPrincipal } from '../principal-context';
-
-async function auditedToolExecute<R>(
-  toolName: string,
-  ctx: { requestContext?: never } | undefined,
-  params: Record<string, unknown>,
-  body: (principal: ReturnType<typeof getToolPrincipal>) => Promise<R>,
-): Promise<R | { success: false; error: string }> {
-  const principal = getToolPrincipal(ctx as never);
-  let outcome: 'allowed' | 'denied' = 'allowed';
-  let reason: AgentAuditReason = 'ok';
-  let result: R | { success: false; error: string };
-  try {
-    result = await body(principal);
-    if (result && typeof result === 'object' && 'error' in result) {
-      outcome = 'denied';
-      reason =
-        (result as { error: string }).error === 'Persona not found' ? 'not-found' : 'tool-error';
-    }
-  } catch (err) {
-    outcome = 'denied';
-    reason = err instanceof ForbiddenError ? 'forbidden' : 'tool-error';
-    result = { success: false, error: 'Tool execution failed' };
-  }
-  await emitAgentAudit({ toolName, principal, outcome, reason, params });
-  return result;
-}
+import { runAuditedTool } from '../tool-helpers';
 
 const updatePersonaFieldTool = createTool({
   id: 'update_persona_field',
@@ -59,7 +32,7 @@ const updatePersonaFieldTool = createTool({
     value: z.any(),
   }),
   execute: async (inputData, ctx) =>
-    auditedToolExecute('update_persona_field', ctx as never, inputData, async (principal) => {
+    runAuditedTool('update_persona_field', ctx as never, inputData, async (principal) => {
       const { personaUri, field, value } = inputData;
       const updated = await (async () => {
         if (field === 'headline' || field === 'location') {
@@ -90,7 +63,7 @@ const checkPIITool = createTool({
   description: 'Check text for PII (phone, email, address, SSN). Returns booleans + redacted text.',
   inputSchema: z.object({ text: z.string() }),
   execute: async (inputData, ctx) =>
-    auditedToolExecute('check_pii', ctx as never, { textPresent: !!inputData.text }, async () => {
+    runAuditedTool('check_pii', ctx as never, { textPresent: !!inputData.text }, async () => {
       const patterns = [
         { type: 'phone', regex: /\b\d{3}[-.]?\d{3}[-.]?\d{4}\b/ },
         { type: 'email', regex: /\b[\w.+-]+@[\w-]+\.[\w.]+\b/ },
@@ -115,7 +88,7 @@ const getCompletenessTool = createTool({
     'Get the completeness score + breakdown for a persona. Call at the start and after updates.',
   inputSchema: z.object({ personaUri: z.string() }),
   execute: async (inputData, ctx) =>
-    auditedToolExecute('get_completeness', ctx as never, inputData, async (principal) => {
+    runAuditedTool('get_completeness', ctx as never, inputData, async (principal) => {
       const [persona] = await db
         .select()
         .from(personas)
@@ -135,7 +108,7 @@ const lookupSuggestionsTool = createTool({
     'Look up taxonomy suggestions for a trait key (skills, qualities, values, interests, seekingOpportunities).',
   inputSchema: z.object({ traitKey: z.string(), query: z.string().optional() }),
   execute: async (inputData, ctx) =>
-    auditedToolExecute('lookup_suggestions', ctx as never, inputData, async () => {
+    runAuditedTool('lookup_suggestions', ctx as never, inputData, async () => {
       const rows = await db
         .select()
         .from(traitTaxonomies)

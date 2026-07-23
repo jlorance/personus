@@ -1,16 +1,11 @@
-import { getOptionalPrincipal } from '@personus/auth/principal';
 import { listMyPersonas } from '@personus/db/services';
 import Link from 'next/link';
 import { SignedOut } from '@/components/signed-out';
+import { getPagePrincipal } from '@/lib/require-principal';
 import { createPersonaAction, deletePersonaAction } from './actions';
 
 export default async function MePage() {
-  let principal = null;
-  try {
-    principal = await getOptionalPrincipal();
-  } catch {
-    principal = null;
-  }
+  const principal = await getPagePrincipal();
 
   let personas: Awaited<ReturnType<typeof listMyPersonas>> = [];
   if (principal) {

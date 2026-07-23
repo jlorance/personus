@@ -21,9 +21,15 @@ export async function POST(req: Request) {
   const raw = await req.text();
   const headers = Object.fromEntries(req.headers.entries());
 
-  const event = auth.verifyWebhook(raw, headers);
+  // verifyWebhook can throw on providers whose implementation is a stub
+  // (e.g. WorkOS) — treat any failure as unverified, never a 500.
+  let event: ReturnType<typeof auth.verifyWebhook> = null;
+  try {
+    event = auth.verifyWebhook(raw, headers);
+  } catch (err) {
+    logger.warn({ err: String(err) }, 'auth webhook verification threw');
+  }
   if (!event) {
-    // Unverified or provider not configured for webhooks — do nothing.
     return NextResponse.json({ ok: false, reason: 'unverified' }, { status: 401 });
   }
 

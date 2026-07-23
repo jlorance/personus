@@ -14,16 +14,28 @@ import {
   ExperimentalEmptyAdapter,
 } from '@copilotkit/runtime';
 import { mastra } from '@personus/ai';
-import type { NextRequest } from 'next/server';
+import { getOptionalPrincipal } from '@personus/auth/principal';
+import { type NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
 
 const serviceAdapter = new ExperimentalEmptyAdapter();
 
 export const POST = async (req: NextRequest) => {
+  // Don't let anonymous callers stream agents against the OpenAI key in
+  // production. Locally (no auth configured) the dev principal path applies.
+  const principal = await getOptionalPrincipal();
+  if (process.env.NODE_ENV === 'production' && !principal) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+
   const copilotRuntime = new CopilotRuntime({
-    // resourceId scopes agent memory; a per-user id is threaded in a later pass.
-    agents: MastraAgent.getLocalAgents({ mastra, resourceId: 'personus' }) as never,
+    // resourceId scopes agent memory to the signed-in user (falls back to a
+    // shared id only on the credential-free dev path).
+    agents: MastraAgent.getLocalAgents({
+      mastra,
+      resourceId: principal?.userId ?? 'anonymous',
+    }) as never,
   });
 
   const { handleRequest } = copilotRuntimeNextJSAppRouterEndpoint({
