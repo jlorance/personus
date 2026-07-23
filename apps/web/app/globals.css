@@ -1,15 +1,252 @@
 @import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Personus — "The Register of the Capable".
+ * shadcn/ui token architecture, editorial identity: warm paper + ink, a single
+ * brass accent as the maker's mark. Light is the default; .dark is the ink
+ * register. Display serif (Instrument Serif) + grotesque body (Hanken) + mono
+ * (Space Mono) for the catalog/data voice.
+ */
 
 :root {
-  --background: #0b0b0f;
-  --foreground: #f5f5f7;
-  --accent: #6d5efc;
+  --radius: 0.375rem;
+
+  --background: #f5f1e8;
+  --foreground: #1b1d23;
+  --card: #fbf8f1;
+  --card-foreground: #1b1d23;
+  --popover: #fbf8f1;
+  --popover-foreground: #1b1d23;
+  --primary: #9a7b2e;
+  --primary-foreground: #fbf8f1;
+  --secondary: #eae4d6;
+  --secondary-foreground: #1b1d23;
+  --muted: #eae4d6;
+  --muted-foreground: #6e6a5f;
+  --accent: #ece5d5;
+  --accent-foreground: #1b1d23;
+  --destructive: #b4402f;
+  --border: #ded7c7;
+  --input: #ded7c7;
+  --ring: #9a7b2e;
 }
 
-html,
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family:
-    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+.dark {
+  --background: #13151b;
+  --foreground: #ede8dd;
+  --card: #191c24;
+  --card-foreground: #ede8dd;
+  --popover: #191c24;
+  --popover-foreground: #ede8dd;
+  --primary: #c6a24a;
+  --primary-foreground: #13151b;
+  --secondary: #21252e;
+  --secondary-foreground: #ede8dd;
+  --muted: #21252e;
+  --muted-foreground: #8e8b82;
+  --accent: #21252e;
+  --accent-foreground: #ede8dd;
+  --destructive: #e06a55;
+  --border: #2a2f3a;
+  --input: #2a2f3a;
+  --ring: #c6a24a;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --font-display: var(--font-display), Georgia, 'Times New Roman', serif;
+  --font-sans: var(--font-body), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono), ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html {
+    color-scheme: light dark;
+  }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    background: var(--primary);
+    color: var(--primary-foreground);
+  }
+}
+
+/* ── Editorial layer (identity on top of shadcn tokens) ─────────────────── */
+@layer components {
+  .display {
+    font-family: var(--font-display);
+    font-weight: 400;
+    line-height: 0.98;
+    letter-spacing: -0.01em;
+  }
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--primary);
+  }
+  .shell {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 0 1.5rem;
+  }
+
+  /* Hero */
+  .hero__thesis {
+    font-family: var(--font-display);
+    font-weight: 400;
+    line-height: 0.98;
+    letter-spacing: -0.01em;
+    font-size: clamp(3rem, 8vw, 6.5rem);
+    max-width: 15ch;
+    margin: 1.25rem 0 1.5rem;
+  }
+  .hero__thesis em {
+    font-style: italic;
+    color: var(--primary);
+  }
+
+  /* Load reveal */
+  .reveal {
+    opacity: 0;
+    transform: translateY(14px);
+    animation: reveal 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+  }
+  .reveal:nth-child(1) { animation-delay: 0.05s; }
+  .reveal:nth-child(2) { animation-delay: 0.14s; }
+  .reveal:nth-child(3) { animation-delay: 0.23s; }
+  .reveal:nth-child(4) { animation-delay: 0.32s; }
+  @keyframes reveal {
+    to { opacity: 1; transform: none; }
+  }
+
+  /* Ledger — the signature */
+  .ledger-row {
+    display: grid;
+    grid-template-columns: 4.5rem 1fr auto;
+    gap: 1.25rem;
+    align-items: baseline;
+    padding: 1.15rem 0;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.2s ease;
+  }
+  .ledger-row:hover {
+    background: color-mix(in srgb, var(--primary) 7%, transparent);
+  }
+  .ledger-row__idx {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--muted-foreground);
+    padding-top: 0.35rem;
+  }
+  .ledger-row__name {
+    font-family: var(--font-display);
+    font-size: 1.6rem;
+    line-height: 1.1;
+  }
+  .ledger-row__uri {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--muted-foreground);
+    margin-left: 0.6rem;
+    letter-spacing: 0.05em;
+  }
+  .ledger-row__cap {
+    color: var(--muted-foreground);
+    font-size: 0.95rem;
+    margin-top: 0.15rem;
+    max-width: 60ch;
+  }
+  .tally {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--primary);
+    white-space: nowrap;
+    padding-top: 0.35rem;
+  }
+  .tally__mark {
+    position: relative;
+  }
+  .tally__mark::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -3px;
+    height: 1px;
+    background: var(--primary);
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 0.35s ease;
+  }
+  .ledger-row:hover .tally__mark::after {
+    transform: scaleX(1);
+  }
+
+  /* CopilotKit theming → brass on the active surface */
+  .copilot-scope {
+    --copilot-kit-primary-color: var(--primary);
+    --copilot-kit-contrast-color: var(--primary-foreground);
+    --copilot-kit-background-color: var(--card);
+    --copilot-kit-secondary-color: var(--background);
+    --copilot-kit-secondary-contrast-color: var(--foreground);
+    --copilot-kit-separator-color: var(--border);
+    --copilot-kit-muted-color: var(--muted-foreground);
+    height: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .ledger-row {
+    grid-template-columns: 2.5rem 1fr;
+  }
+  .tally {
+    grid-column: 2;
+    padding-top: 0.25rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .tally__mark::after {
+    transition: none;
+  }
 }
