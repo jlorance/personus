@@ -8,7 +8,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { db } from '../index';
 import { eq } from '../orm';
-import { personas, systemSettings, users, userTraits } from '../schema';
+import { communities, personas, systemSettings, users, userTraits } from '../schema';
 import {
   hasTestDb,
   isVectorAvailable,
@@ -213,6 +213,20 @@ describe.skipIf(!hasTestDb)('service layer (integration)', () => {
 
       expect(await leaveCommunity(joiner, c.slug)).toBe(true);
       expect((await listCommunities(founder)).find((x) => x.slug === c.slug)?.memberCount).toBe(1);
+    });
+
+    it('refuses self-service join to an approval-only community', async () => {
+      const founder = await makeUser(12);
+      const fp = await createPersona(founder, { displayName: 'Gated Guild' });
+      const c = await createCommunity(founder, { name: 'Gated Guild', foundingPersonaUri: fp.uri });
+      await db
+        .update(communities)
+        .set({ joinPolicy: 'approval' })
+        .where(eq(communities.slug, c.slug));
+
+      const joiner = await makeUser(13);
+      const jp = await createPersona(joiner, { displayName: 'Hopeful' });
+      await expect(joinCommunity(joiner, c.slug, jp.uri)).rejects.toBeInstanceOf(ForbiddenError);
     });
   });
 

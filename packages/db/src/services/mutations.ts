@@ -16,7 +16,14 @@ import {
   shadowPersonas,
 } from '../schema';
 import { endorsementTargetValid } from './gates';
-import { ForbiddenError, NotFoundError, type ServicePrincipal, principalTag as tag } from './index';
+import {
+  ForbiddenError,
+  NotFoundError,
+  owns,
+  type ServicePrincipal,
+  principalTag as tag,
+  toBigId,
+} from './index';
 
 /** Create a mediated contact request. Stores NO raw contact details (ContactRelay resolves delivery). */
 export async function createContactRequest(
@@ -36,7 +43,7 @@ export async function createContactRequest(
       .from(personas)
       .where(and(eq(personas.uri, input.fromPersonaUri), isNull(personas.deletedAt)))
       .limit(1);
-    if (!owned || String(owned.userId) !== principal.userId) throw new ForbiddenError();
+    if (!owned || !owns(owned, principal)) throw new ForbiddenError();
   }
 
   // The target persona must exist and be live.
@@ -80,13 +87,13 @@ export async function createShadowPersona(
     .from(personas)
     .where(and(eq(personas.uri, input.createdByPersonaUri), isNull(personas.deletedAt)))
     .limit(1);
-  if (!owned || String(owned.userId) !== principal.userId) throw new ForbiddenError();
+  if (!owned || !owns(owned, principal)) throw new ForbiddenError();
 
   const claimToken = `clm_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
   const [row] = await db
     .insert(shadowPersonas)
     .values({
-      communityId: BigInt(input.communityId),
+      communityId: toBigId(input.communityId),
       createdByPersonaUri: input.createdByPersonaUri,
       displayName: input.displayName,
       traits: input.traits ?? {},
@@ -125,14 +132,14 @@ export async function createEndorsement(
     .from(personas)
     .where(and(eq(personas.uri, input.fromPersonaUri), isNull(personas.deletedAt)))
     .limit(1);
-  if (!owned || String(owned.userId) !== principal.userId) throw new ForbiddenError();
+  if (!owned || !owns(owned, principal)) throw new ForbiddenError();
 
   const [row] = await db
     .insert(endorsements)
     .values({
       fromPersonaUri: input.fromPersonaUri,
       toPersonaUri: input.toPersonaUri ?? null,
-      toShadowPersonaId: input.toShadowPersonaId ? BigInt(input.toShadowPersonaId) : null,
+      toShadowPersonaId: input.toShadowPersonaId ? toBigId(input.toShadowPersonaId) : null,
       relationshipType: input.relationshipType,
       strength: input.strength ?? 'moderate',
       testimonial: input.testimonial ?? null,

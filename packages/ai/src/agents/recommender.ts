@@ -16,7 +16,7 @@ const createShadowTool = createTool({
   description:
     'Create a placeholder (shadow) persona for someone not yet on Personus, in a community. Returns a claim token to invite them.',
   inputSchema: z.object({
-    communityId: z.string(),
+    communityId: z.string().regex(/^\d+$/, 'numeric community id'),
     createdByPersonaUri: z.string(),
     displayName: z.string(),
     traits: z.record(z.string(), z.any()).optional(),
@@ -40,7 +40,7 @@ const createEndorsementTool = createTool({
   inputSchema: z.object({
     fromPersonaUri: z.string(),
     toPersonaUri: z.string().optional(),
-    toShadowPersonaId: z.string().optional(),
+    toShadowPersonaId: z.string().regex(/^\d+$/, 'numeric shadow persona id').optional(),
     relationshipType: z.string(),
     strength: z.enum(['strong', 'moderate', 'light']).optional(),
     testimonial: z.string().optional(),

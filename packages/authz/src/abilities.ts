@@ -11,7 +11,7 @@
 
 import { AbilityBuilder, createMongoAbility, type PureAbility } from '@casl/ability';
 import { db } from '@personus/db';
-import { eq } from '@personus/db/orm';
+import { and, eq, isNull } from '@personus/db/orm';
 import { communityMembers, personas } from '@personus/db/schema';
 
 export type Subjects =
@@ -139,8 +139,12 @@ export function defineAbilitiesFor(context: AbilityContext): AppAbility {
     can('manage', 'PlatformChannel');
   }
 
+  // Self-service join/leave — the service scopes create/delete to the caller's
+  // own membership row (and enforces the community's joinPolicy on create).
+  can('create', 'Membership');
   can('read', 'Membership');
   can('update', 'Membership');
+  can('delete', 'Membership');
   can('read', 'GuildTaxonomy');
   can('read', 'GuildOffering');
   can('read', 'GuildRequest');
@@ -183,7 +187,7 @@ export async function buildAbilityContext(
   const userPersonas = await db
     .select({ uri: personas.uri })
     .from(personas)
-    .where(eq(personas.userId, userIdBig));
+    .where(and(eq(personas.userId, userIdBig), isNull(personas.deletedAt)));
 
   const memberships = await db
     .select({ communityId: communityMembers.communityId, role: communityMembers.role })

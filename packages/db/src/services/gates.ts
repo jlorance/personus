@@ -38,11 +38,6 @@ export function canViewPersona(
   }
 }
 
-/** SQL-fragment intent for a persona list query: which visibilities are allowed. */
-export function allowedVisibilities(networkDepth: 1 | 2): Visibility[] {
-  return networkDepth >= 2 ? ['public', 'authenticated', 'community'] : ['public'];
-}
-
 /**
  * Can `viewer` see an endorsement? Owner (endorser or target) always can;
  * otherwise it follows the endorsement's own visibility, with 'community'

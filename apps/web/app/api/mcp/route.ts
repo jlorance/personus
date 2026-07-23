@@ -131,7 +131,9 @@ export async function POST(req: Request) {
             return rpcError(id, -32601, `Unknown tool: ${name}`);
         }
       } catch (err) {
-        logger.error({ err: String(err), tool: name }, 'MCP tool execution failed');
+        // Allowlist the tool name before logging — never log a raw user-supplied value.
+        const safeName = TOOLS.some((t) => t.name === name) ? name : '[unknown]';
+        logger.error({ err: String(err), tool: safeName }, 'MCP tool execution failed');
         return rpcResult(id, { ...toolContent({ error: 'Tool execution failed' }), isError: true });
       }
     }

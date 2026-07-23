@@ -54,6 +54,17 @@ export function principalTag(principal: ServicePrincipal): string {
   return principal.userId ? `user:${principal.userId}` : 'system';
 }
 
+/** Parse an external id string into a bigint, rejecting non-numeric input cleanly. */
+export function toBigId(value: string): bigint {
+  if (!/^\d+$/.test(value)) throw new NotFoundError('Invalid id');
+  return BigInt(value);
+}
+
+/** True when `row.userId` (bigint) belongs to the principal. */
+export function owns(row: { userId: bigint }, principal: ServicePrincipal): boolean {
+  return principal.userId != null && String(row.userId) === principal.userId;
+}
+
 // ─── Persona mutations (Coach-facing) ─────────────────────────────────────────
 
 /**
@@ -74,7 +85,7 @@ export async function updatePersona(
     .where(and(eq(personas.uri, uri), notDeleted(personas)))
     .limit(1);
   if (!existing) return null;
-  if (String(existing.userId) !== principal.userId) throw new ForbiddenError();
+  if (!owns(existing, principal)) throw new ForbiddenError();
 
   const [updated] = await db
     .update(personas)
@@ -101,7 +112,7 @@ export async function updatePersonaTraits(
     .where(and(eq(personas.uri, uri), notDeleted(personas)))
     .limit(1);
   if (!existing) return null;
-  if (String(existing.userId) !== principal.userId) throw new ForbiddenError();
+  if (!owns(existing, principal)) throw new ForbiddenError();
 
   const tag = principalTag(principal);
   const [updated] = await db

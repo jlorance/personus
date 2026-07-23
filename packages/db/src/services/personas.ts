@@ -8,7 +8,7 @@ import { and, eq, isNull } from '../orm';
 import { personas } from '../schema';
 import { publicId } from '../schema/_factory';
 import { slugifyName, toPersonaSummary } from './gates';
-import { ForbiddenError, type ServicePrincipal } from './index';
+import { ForbiddenError, owns, type ServicePrincipal } from './index';
 
 /** Create a persona owned by the principal. Ensures a unique `uri`. */
 export async function createPersona(
@@ -86,7 +86,7 @@ export async function deletePersona(principal: ServicePrincipal, uri: string): P
     .where(and(eq(personas.uri, uri), isNull(personas.deletedAt)))
     .limit(1);
   if (!existing) return false;
-  if (String(existing.userId) !== principal.userId) throw new ForbiddenError();
+  if (!owns(existing, principal)) throw new ForbiddenError();
   await db
     .update(personas)
     .set({ deletedAt: new Date(), updatedBy: `user:${principal.userId}`, updatedAt: new Date() })

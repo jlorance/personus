@@ -11,7 +11,7 @@
 import { db } from '../index';
 import { and, eq, isNull } from '../orm';
 import { communityMembers, platformChannelBindings } from '../schema';
-import { ForbiddenError, NotFoundError, type ServicePrincipal } from './index';
+import { ForbiddenError, NotFoundError, type ServicePrincipal, toBigId } from './index';
 
 async function memberRole(
   principal: ServicePrincipal,
@@ -57,7 +57,7 @@ export async function bindPlatformChannel(
   },
 ): Promise<typeof platformChannelBindings.$inferSelect> {
   if (!principal.ability.can('manage', 'PlatformChannel')) throw new ForbiddenError();
-  const communityId = BigInt(input.communityId);
+  const communityId = toBigId(input.communityId);
   await assertCommunityAdmin(principal, communityId);
 
   const tag = `user:${principal.userId}`;
@@ -118,8 +118,9 @@ export async function listPlatformChannels(
   communityId: string,
 ): Promise<BindingView[]> {
   if (!principal.userId || !principal.ability.can('read', 'Community')) return [];
+  const cid = toBigId(communityId);
   // Membership gate — an authenticated non-member must not enumerate a community's bindings.
-  if ((await memberRole(principal, BigInt(communityId))) === null) return [];
+  if ((await memberRole(principal, cid)) === null) return [];
 
   const rows = await db
     .select({
@@ -132,7 +133,7 @@ export async function listPlatformChannels(
     .from(platformChannelBindings)
     .where(
       and(
-        eq(platformChannelBindings.communityId, BigInt(communityId)),
+        eq(platformChannelBindings.communityId, cid),
         eq(platformChannelBindings.status, 'active'),
         isNull(platformChannelBindings.deletedAt),
       ),
