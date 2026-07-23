@@ -92,7 +92,7 @@ const getCompletenessTool = createTool({
       const [persona] = await db
         .select()
         .from(personas)
-        .where(eq(personas.uri, inputData.personaUri))
+        .where(and(eq(personas.uri, inputData.personaUri), isNull(personas.deletedAt)))
         .limit(1);
       if (!persona || String(persona.userId) !== principal.userId) {
         return { error: 'Persona not found' };

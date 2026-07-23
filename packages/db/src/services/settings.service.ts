@@ -61,8 +61,10 @@ export function coerceSettingValue(valueType: string, raw: string): unknown {
   switch (valueType) {
     case 'boolean':
       return raw === 'true' || raw === 'on' || raw === '1';
-    case 'number':
-      return Number(raw);
+    case 'number': {
+      const n = Number(raw);
+      return Number.isNaN(n) ? 0 : n; // JSONB rejects NaN
+    }
     case 'json':
       try {
         return JSON.parse(raw);

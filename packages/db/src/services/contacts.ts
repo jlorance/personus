@@ -100,6 +100,7 @@ export async function respondToContact(
     })
     .where(eq(contactRequests.id, req.id))
     .returning();
+  if (!updated) throw new NotFoundError('Contact request already resolved');
 
   return {
     request: updated,

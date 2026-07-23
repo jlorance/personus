@@ -4,8 +4,7 @@
   "private": true,
   "exports": {
     ".": "./src/index.ts",
-    "./abilities": "./src/abilities.ts",
-    "./permissions": "./src/permissions.ts"
+    "./abilities": "./src/abilities.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",

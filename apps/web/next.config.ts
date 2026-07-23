@@ -13,7 +13,6 @@ const nextConfig: NextConfig = {
     '@personus/logger',
     '@personus/notifications',
     '@personus/timeout',
-    '@personus/types',
     '@personus/validations',
   ],
   // @neondatabase/serverless + Mastra are server-only; keep them external to the

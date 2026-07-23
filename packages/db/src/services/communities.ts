@@ -7,7 +7,7 @@ import { db } from '../index';
 import { and, eq, isNull, sql } from '../orm';
 import { communities, communityMembers, personas } from '../schema';
 import { slugifyName } from './gates';
-import { ForbiddenError, NotFoundError, type ServicePrincipal } from './index';
+import { ForbiddenError, NotFoundError, owns, type ServicePrincipal } from './index';
 
 /** Create a community; the founder joins as an admin member with the given persona. */
 export async function createCommunity(
@@ -22,7 +22,7 @@ export async function createCommunity(
     .from(personas)
     .where(and(eq(personas.uri, input.foundingPersonaUri), isNull(personas.deletedAt)))
     .limit(1);
-  if (!foundingPersona || String(foundingPersona.userId) !== principal.userId) {
+  if (!foundingPersona || !owns(foundingPersona, principal)) {
     throw new ForbiddenError();
   }
 
@@ -84,21 +84,27 @@ export async function joinCommunity(
   slug: string,
   personaUri: string,
 ): Promise<void> {
-  if (!principal.userId) throw new ForbiddenError();
+  if (!principal.userId || !principal.ability.can('create', 'Membership'))
+    throw new ForbiddenError();
 
   const [community] = await db
-    .select({ id: communities.id })
+    .select({ id: communities.id, joinPolicy: communities.joinPolicy })
     .from(communities)
     .where(and(eq(communities.slug, slug), isNull(communities.deletedAt)))
     .limit(1);
   if (!community) throw new NotFoundError('Community not found');
+  // Only open communities allow self-service join; approval/invite_only need a
+  // flow that isn't built yet, so refuse rather than silently bypass the policy.
+  if (community.joinPolicy !== 'open') {
+    throw new ForbiddenError('This community requires an invitation or approval to join');
+  }
 
   const [persona] = await db
     .select({ id: personas.id, userId: personas.userId })
     .from(personas)
     .where(and(eq(personas.uri, personaUri), isNull(personas.deletedAt)))
     .limit(1);
-  if (!persona || String(persona.userId) !== principal.userId) throw new ForbiddenError();
+  if (!persona || !owns(persona, principal)) throw new ForbiddenError();
 
   const [existing] = await db
     .select({ id: communityMembers.id })
@@ -129,7 +135,8 @@ export async function joinCommunity(
 
 /** Leave a community. Returns false if the principal wasn't a member. */
 export async function leaveCommunity(principal: ServicePrincipal, slug: string): Promise<boolean> {
-  if (!principal.userId) throw new ForbiddenError();
+  if (!principal.userId || !principal.ability.can('delete', 'Membership'))
+    throw new ForbiddenError();
   const [community] = await db
     .select({ id: communities.id })
     .from(communities)

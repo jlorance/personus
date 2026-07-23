@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  allowedVisibilities,
   canRespondToContact,
   canViewEndorsement,
   canViewPersona,
@@ -29,13 +28,6 @@ describe('canViewPersona', () => {
   });
   it('private is hidden from non-owners', () => {
     expect(canViewPersona(user, { visibility: 'private', ownerUserId: '1' })).toBe(false);
-  });
-});
-
-describe('allowedVisibilities', () => {
-  it('anon sees public only; authed sees the trio', () => {
-    expect(allowedVisibilities(1)).toEqual(['public']);
-    expect(allowedVisibilities(2)).toEqual(['public', 'authenticated', 'community']);
   });
 });
 
