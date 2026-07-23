@@ -15,7 +15,22 @@
 import { getAnonymousMcpPrincipal } from '@personus/auth/principal';
 import { getPersonaByUri, listCommunities, searchPersonas } from '@personus/db/services';
 import { flags } from '@personus/flags';
+import { logger } from '@personus/logger';
 import { NextResponse } from 'next/server';
+
+/** Curated public projection — never leak internal columns to MCP callers. */
+function publicPersona(row: Awaited<ReturnType<typeof getPersonaByUri>>) {
+  if (!row) return null;
+  return {
+    uri: row.uri,
+    displayName: row.displayName,
+    headline: row.headline,
+    location: row.location,
+    entityType: row.entityType,
+    traits: row.traits,
+    completenessScore: row.completenessScore,
+  };
+}
 
 export const runtime = 'nodejs';
 
@@ -61,10 +76,6 @@ function toolContent(data: unknown) {
 }
 
 export async function POST(req: Request) {
-  if (!(await flags.isEnabled('mcp_enabled', true))) {
-    return rpcError(null, -32000, 'MCP endpoint disabled');
-  }
-
   let body: { jsonrpc?: string; id?: unknown; method?: string; params?: any };
   try {
     body = await req.json();
@@ -87,6 +98,12 @@ export async function POST(req: Request) {
     case 'tools/list':
       return rpcResult(id, { tools: TOOLS });
     case 'tools/call': {
+      // Execution is gated behind the feature flag and fails CLOSED (default
+      // false) — protocol discovery above stays open, but no tool runs when the
+      // flag is off or its lookup errors.
+      if (!(await flags.isEnabled('mcp_enabled', false))) {
+        return rpcError(id, -32000, 'MCP tools are disabled');
+      }
       const principal = getAnonymousMcpPrincipal(req);
       const name = params?.name as string;
       const args = (params?.arguments ?? {}) as Record<string, any>;
@@ -105,14 +122,17 @@ export async function POST(req: Request) {
           case 'personus_get_persona':
             return rpcResult(
               id,
-              toolContent(await getPersonaByUri(principal, String(args.personaUri ?? ''))),
+              toolContent(
+                publicPersona(await getPersonaByUri(principal, String(args.personaUri ?? ''))),
+              ),
             );
           case 'personus_list_communities':
             return rpcResult(id, toolContent(await listCommunities(principal)));
           default:
             return rpcError(id, -32601, `Unknown tool: ${name}`);
         }
-      } catch {
+      } catch (err) {
+        logger.error({ err: String(err), tool: name }, 'MCP tool execution failed');
         return rpcResult(id, { ...toolContent({ error: 'Tool execution failed' }), isError: true });
       }
     }

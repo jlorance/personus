@@ -10,13 +10,20 @@ import { logger } from '@personus/logger';
 
 export type AgentAuditReason = 'ok' | 'forbidden' | 'not-found' | 'tool-error';
 
-/** Redact free-text values to presence booleans before persisting. */
-function sanitize(params: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(params)) {
-    out[k] = typeof v === 'string' ? { present: v.length > 0 } : v;
+/**
+ * Redact free-text to presence booleans before persisting — recursively, so
+ * PII nested inside objects/arrays (e.g. an LLM-populated `traits` object) never
+ * reaches the audit log. Only structure and primitive non-strings survive.
+ */
+export function sanitize(value: unknown): unknown {
+  if (typeof value === 'string') return { present: value.length > 0 };
+  if (Array.isArray(value)) return value.map(sanitize);
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) out[k] = sanitize(v);
+    return out;
   }
-  return out;
+  return value; // numbers, booleans, null, undefined
 }
 
 export async function emitAgentAudit(args: {

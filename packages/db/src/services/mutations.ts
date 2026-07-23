@@ -15,7 +15,8 @@ import {
   personas,
   shadowPersonas,
 } from '../schema';
-import { ForbiddenError, type ServicePrincipal } from './index';
+import { endorsementTargetValid } from './gates';
+import { ForbiddenError, NotFoundError, type ServicePrincipal } from './index';
 
 function tag(p: ServicePrincipal): string {
   return p.userId ? `user:${p.userId}` : `agent:anonymous`;
@@ -26,17 +27,29 @@ export async function createContactRequest(
   principal: ServicePrincipal,
   input: { fromPersonaUri?: string; toPersonaUri: string; reason: string; message?: string },
 ): Promise<typeof contactRequests.$inferSelect> {
-  if (!principal.ability.can('create', 'ContactRequest')) throw new ForbiddenError();
+  // A contact request is an authenticated action — an anonymous caller must not
+  // be able to spam introductions even if granted the CASL create ability.
+  if (!principal.userId || !principal.ability.can('create', 'ContactRequest')) {
+    throw new ForbiddenError();
+  }
 
-  // If a from-persona is claimed, it must belong to the principal.
-  if (input.fromPersonaUri && principal.userId) {
+  // If a from-persona is claimed, it must belong to the principal (live rows only).
+  if (input.fromPersonaUri) {
     const [owned] = await db
       .select({ userId: personas.userId })
       .from(personas)
-      .where(eq(personas.uri, input.fromPersonaUri))
+      .where(and(eq(personas.uri, input.fromPersonaUri), isNull(personas.deletedAt)))
       .limit(1);
     if (!owned || String(owned.userId) !== principal.userId) throw new ForbiddenError();
   }
+
+  // The target persona must exist and be live.
+  const [target] = await db
+    .select({ id: personas.id })
+    .from(personas)
+    .where(and(eq(personas.uri, input.toPersonaUri), isNull(personas.deletedAt)))
+    .limit(1);
+  if (!target) throw new NotFoundError('Target persona not found');
 
   const [row] = await db
     .insert(contactRequests)
@@ -63,15 +76,15 @@ export async function createShadowPersona(
     traits?: Record<string, unknown>;
   },
 ): Promise<typeof shadowPersonas.$inferSelect> {
-  if (!principal.ability.can('create', 'ShadowPersona')) throw new ForbiddenError();
-  if (principal.userId) {
-    const [owned] = await db
-      .select({ userId: personas.userId })
-      .from(personas)
-      .where(eq(personas.uri, input.createdByPersonaUri))
-      .limit(1);
-    if (!owned || String(owned.userId) !== principal.userId) throw new ForbiddenError();
+  if (!principal.userId || !principal.ability.can('create', 'ShadowPersona')) {
+    throw new ForbiddenError();
   }
+  const [owned] = await db
+    .select({ userId: personas.userId })
+    .from(personas)
+    .where(and(eq(personas.uri, input.createdByPersonaUri), isNull(personas.deletedAt)))
+    .limit(1);
+  if (!owned || String(owned.userId) !== principal.userId) throw new ForbiddenError();
 
   const claimToken = `clm_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
   const [row] = await db
@@ -102,18 +115,21 @@ export async function createEndorsement(
     testimonial?: string;
   },
 ): Promise<typeof endorsements.$inferSelect> {
-  if (!principal.ability.can('create', 'Endorsement')) throw new ForbiddenError();
-  if (!input.toPersonaUri && !input.toShadowPersonaId) {
-    throw new ForbiddenError('Endorsement must target a persona or shadow persona');
+  if (!principal.userId || !principal.ability.can('create', 'Endorsement')) {
+    throw new ForbiddenError();
   }
-  if (principal.userId) {
-    const [owned] = await db
-      .select({ userId: personas.userId })
-      .from(personas)
-      .where(eq(personas.uri, input.fromPersonaUri))
-      .limit(1);
-    if (!owned || String(owned.userId) !== principal.userId) throw new ForbiddenError();
+  // Exactly one target (real XOR shadow) — mirrors the DB check constraint.
+  if (!endorsementTargetValid(input)) {
+    throw new ForbiddenError(
+      'Endorsement must target exactly one of a persona or a shadow persona',
+    );
   }
+  const [owned] = await db
+    .select({ userId: personas.userId })
+    .from(personas)
+    .where(and(eq(personas.uri, input.fromPersonaUri), isNull(personas.deletedAt)))
+    .limit(1);
+  if (!owned || String(owned.userId) !== principal.userId) throw new ForbiddenError();
 
   const [row] = await db
     .insert(endorsements)

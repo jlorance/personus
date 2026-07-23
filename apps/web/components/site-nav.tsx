@@ -6,7 +6,10 @@ import { ThemeToggle } from '@/components/theme-toggle';
 
 const LINKS = [
   { href: '/explore', label: 'Explore' },
+  { href: '/communities', label: 'Communities' },
   { href: '/coach', label: 'Coach' },
+  { href: '/inbox', label: 'Inbox' },
+  { href: '/me', label: 'You' },
 ];
 
 export function SiteNav() {

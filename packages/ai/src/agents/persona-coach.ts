@@ -10,7 +10,7 @@
 import { Agent } from '@mastra/core/agent';
 import { createTool } from '@mastra/core/tools';
 import { db } from '@personus/db';
-import { eq } from '@personus/db/orm';
+import { and, eq, isNull } from '@personus/db/orm';
 import { personas, traitTaxonomies } from '@personus/db/schema';
 import { ForbiddenError, updatePersona, updatePersonaTraits } from '@personus/db/services';
 import { getSetting } from '@personus/db/settings';
@@ -68,7 +68,7 @@ const updatePersonaFieldTool = createTool({
         const [existing] = await db
           .select({ traits: personas.traits })
           .from(personas)
-          .where(eq(personas.uri, personaUri))
+          .where(and(eq(personas.uri, personaUri), isNull(personas.deletedAt)))
           .limit(1);
         if (!existing) return null;
         const merged = { ...((existing.traits ?? {}) as Record<string, unknown>), [field]: value };

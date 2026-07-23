@@ -36,8 +36,12 @@ export function getToolPrincipal(
   const p = rc?.get(PRINCIPAL_CTX_KEY);
   if (p) return p;
 
-  const dev = getDevPrincipal();
-  if (dev) return dev;
+  // Defense in depth: the dev fallback is ONLY ever consulted outside production.
+  // (getDevPrincipal also fails closed in production, but never rely on one guard.)
+  if (process.env.NODE_ENV !== 'production') {
+    const dev = getDevPrincipal();
+    if (dev) return dev;
+  }
 
   throw new Error(
     'Mastra tool invoked without a principal in requestContext. Build one via buildAgentRequestContext() before agent.generate()/stream().',

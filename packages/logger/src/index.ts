@@ -21,6 +21,10 @@ const REDACT_KEYS = new Set([
   'authorization',
   'phone',
   'ssn',
+  // External IdP subject ids are quasi-identifiers — redact from logs.
+  'subjectId',
+  'authSubjectId',
+  'clerkUserId',
 ]);
 
 function threshold(): number {

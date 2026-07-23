@@ -159,7 +159,12 @@ export function getAnonymousMcpPrincipal(req: Request): Principal {
     authSubjectId: null,
     email: null,
     role: 'user',
-    ability: buildNarrowAbility([['read', 'Persona']]),
+    // Public read only — Community list is filtered to visibility:'public' for
+    // anonymous callers by the service, so this exposes nothing private.
+    ability: buildNarrowAbility([
+      ['read', 'Persona'],
+      ['read', 'Community'],
+    ]),
     networkDepth: 1,
     mcpClient: { clientId: clientHash, tier: 'anonymous', tokenIssuedAt: new Date() },
   };

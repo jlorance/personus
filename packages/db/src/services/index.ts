@@ -118,8 +118,14 @@ export async function updatePersonaTraits(
   return updated ?? null;
 }
 
-export * from './mutations';
-// ─── Re-exports (search + discovery/recommender mutations) ────────────────────
+export * from './communities';
+export * from './contacts';
+export * from './endorsements';
+// ─── Re-exports ───────────────────────────────────────────────────────────────
 // Placed at the bottom so the classes/types above are defined before these
 // modules (which import from here) are evaluated.
+export * from './gates';
+export * from './mutations';
+export * from './personas';
+export * from './reference';
 export * from './search';
