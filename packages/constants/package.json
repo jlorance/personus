@@ -1,0 +1,15 @@
+{
+  "name": "@personus/constants",
+  "version": "0.0.0",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@personus/typescript-config": "workspace:*",
+    "typescript": "^5.7.3"
+  }
+}

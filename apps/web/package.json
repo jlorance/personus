@@ -1,0 +1,39 @@
+{
+  "name": "@personus/web",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack --port 3000",
+    "build": "next build",
+    "start": "next start",
+    "lint": "biome check .",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ag-ui/mastra": "^1.1.1",
+    "@copilotkit/react-core": "^1.63.1",
+    "@copilotkit/react-ui": "^1.63.1",
+    "@copilotkit/runtime": "^1.63.1",
+    "@mastra/core": "1.51.0",
+    "@personus/ai": "workspace:*",
+    "@personus/auth": "workspace:*",
+    "@personus/constants": "workspace:*",
+    "@personus/db": "workspace:*",
+    "@personus/flags": "workspace:*",
+    "@personus/logger": "workspace:*",
+    "next": "16.2.11",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@personus/typescript-config": "workspace:*",
+    "@tailwindcss/postcss": "^4.0.0",
+    "@types/node": "^22.10.5",
+    "@types/react": "^19.0.6",
+    "@types/react-dom": "^19.0.2",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.3",
+    "vitest": "^3.2.4"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "@personus/flags",
+  "version": "0.0.0",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./providers": "./src/providers/index.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@openfeature/server-sdk": "^1.22.0",
+    "@personus/db": "workspace:*",
+    "@personus/logger": "workspace:*"
+  },
+  "devDependencies": {
+    "@personus/typescript-config": "workspace:*",
+    "typescript": "^5.7.3",
+    "vitest": "^3.2.4"
+  }
+}

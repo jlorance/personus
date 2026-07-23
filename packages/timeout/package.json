@@ -1,0 +1,17 @@
+{
+  "name": "@personus/timeout",
+  "version": "0.0.0",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@personus/typescript-config": "workspace:*",
+    "typescript": "^5.7.3",
+    "vitest": "^3.2.4"
+  }
+}

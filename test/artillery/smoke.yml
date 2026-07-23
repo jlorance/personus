@@ -1,0 +1,28 @@
+# Artillery smoke test — credential-free load check against the health endpoint.
+# Run with: bun run test:load  (requires the dev server on :3000)
+#
+# Targets /api/health only, so it needs no OpenAI/Clerk/DB keys. A gentle ramp
+# that asserts 200s and a stable p95 — enough to prove the app serves under load.
+config:
+  target: 'http://localhost:3000'
+  phases:
+    - name: warmup
+      duration: 10
+      arrivalRate: 2
+    - name: ramp
+      duration: 20
+      arrivalRate: 5
+      rampTo: 20
+  ensure:
+    thresholds:
+      - http.response_time.p95: 500
+    maxErrorRate: 1
+
+scenarios:
+  - name: health
+    flow:
+      - get:
+          url: '/api/health'
+          expect:
+            - statusCode: 200
+            - contentType: json

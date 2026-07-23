@@ -1,0 +1,25 @@
+{
+  "name": "@personus/auth",
+  "version": "0.0.0",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./provider": "./src/provider.ts",
+    "./principal": "./src/principal.ts",
+    "./system": "./src/system.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@clerk/nextjs": "^6.37.3",
+    "@personus/authz": "workspace:*",
+    "@personus/db": "workspace:*",
+    "@personus/logger": "workspace:*"
+  },
+  "devDependencies": {
+    "@personus/typescript-config": "workspace:*",
+    "typescript": "^5.7.3",
+    "vitest": "^3.2.4"
+  }
+}

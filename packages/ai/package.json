@@ -1,0 +1,26 @@
+{
+  "name": "@personus/ai",
+  "version": "0.0.0",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./principal-context": "./src/principal-context.ts",
+    "./platform-channels": "./src/platform-channels.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^2.0.0",
+    "@mastra/core": "1.51.0",
+    "@personus/auth": "workspace:*",
+    "@personus/db": "workspace:*",
+    "@personus/logger": "workspace:*",
+    "@personus/timeout": "workspace:*",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@personus/typescript-config": "workspace:*",
+    "typescript": "^5.7.3"
+  }
+}
