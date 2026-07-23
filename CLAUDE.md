@@ -31,4 +31,6 @@ AI-native capability-discovery network. Monorepo (Turborepo + Bun workspaces).
 - Package manager **bun**; the Neon **HTTP** driver has no interactive transactions (use compensating writes).
 
 ## Testing
-Pure/domain logic is unit-tested to ~100% (`gates.ts`). DB-glue services, agents, and Next routes need a Postgres-backed integration harness (a provisioned DB + API keys) — see the coverage report; that suite is a follow-up.
+- Unit tests run everywhere: `bun run test` (Turbo) or `bun run test:coverage` (root Vitest, coverage).
+- **Integration tests** (`packages/db/src/services/services.integration.test.ts`) exercise the service layer against a **real Postgres+pgvector**. They run only when `TEST_DATABASE_URL` is set (CI provides a `pgvector/pgvector` service); otherwise they skip. The harness (`packages/db/src/test/harness.ts`) applies the committed migration, and falls back to a vector-free DDL on plain Postgres for local runs.
+- Coverage: pure logic ~100% (`gates.ts`); the service layer is ~93% under the integration suite. Agents and Next routes still need e2e coverage.
