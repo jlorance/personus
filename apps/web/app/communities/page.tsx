@@ -1,15 +1,10 @@
-import { getOptionalPrincipal } from '@personus/auth/principal';
 import { listCommunities, listCommunityTypes, listMyPersonas } from '@personus/db/services';
 import { SignedOut } from '@/components/signed-out';
+import { getPagePrincipal } from '@/lib/require-principal';
 import { createCommunityAction, joinCommunityAction, leaveCommunityAction } from './actions';
 
 export default async function CommunitiesPage() {
-  let principal = null;
-  try {
-    principal = await getOptionalPrincipal();
-  } catch {
-    principal = null;
-  }
+  const principal = await getPagePrincipal();
 
   let communities: Awaited<ReturnType<typeof listCommunities>> = [];
   let personas: Awaited<ReturnType<typeof listMyPersonas>> = [];

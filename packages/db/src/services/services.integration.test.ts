@@ -7,7 +7,8 @@
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { db } from '../index';
-import { systemSettings, users, userTraits } from '../schema';
+import { eq } from '../orm';
+import { personas, systemSettings, users, userTraits } from '../schema';
 import {
   hasTestDb,
   isVectorAvailable,
@@ -128,6 +129,26 @@ describe.skipIf(!hasTestDb)('service layer (integration)', () => {
       const b = await createPersona(user, { displayName: 'Same Name' });
       expect(a.uri).toBe('same-name');
       expect(b.uri).not.toBe(a.uri);
+    });
+
+    it('hides personas from agent surfaces until they opt into mcpEnabled', async () => {
+      const user = await makeUser(8);
+      const p = await createPersona(user, {
+        displayName: 'Opted Out',
+        headline: 'welds',
+        visibility: 'public',
+      });
+      // default mcpEnabled=false → invisible to agent/MCP surfaces…
+      expect(await searchPersonas(anon, { query: 'opted', requireMcpEnabled: true })).toHaveLength(
+        0,
+      );
+      // …but visible to the human web surface (visibility only).
+      expect((await searchPersonas(anon, { query: 'opted' })).length).toBeGreaterThan(0);
+      // opt in → now surfaced to agents.
+      await db.update(personas).set({ mcpEnabled: true }).where(eq(personas.uri, p.uri));
+      expect(await searchPersonas(anon, { query: 'opted', requireMcpEnabled: true })).toHaveLength(
+        1,
+      );
     });
 
     it('ranks by cosine similarity when a query embedding is supplied', async (ctx) => {

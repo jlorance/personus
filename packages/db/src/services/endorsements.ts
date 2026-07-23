@@ -44,11 +44,11 @@ export async function listEndorsementsForPersona(
     )
     .where(and(eq(endorsements.toPersonaUri, toPersonaUri), isNull(endorsements.deletedAt)));
 
-  // Target owner (single lookup) for the recipient-bypass.
+  // Target owner (single lookup) for the recipient-bypass — live rows only.
   const [target] = await db
     .select({ userId: personas.userId })
     .from(personas)
-    .where(eq(personas.uri, toPersonaUri))
+    .where(and(eq(personas.uri, toPersonaUri), isNull(personas.deletedAt)))
     .limit(1);
   const toOwnerUserId = target ? String(target.userId) : null;
 

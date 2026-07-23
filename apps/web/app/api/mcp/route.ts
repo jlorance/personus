@@ -112,6 +112,7 @@ export async function POST(req: Request) {
                 await searchPersonas(principal, {
                   query: String(args.query ?? ''),
                   maxResults: args.maxResults,
+                  requireMcpEnabled: true,
                 }),
               ),
             );
@@ -119,7 +120,9 @@ export async function POST(req: Request) {
             return rpcResult(
               id,
               toolContent(
-                publicPersona(await getPersonaByUri(principal, String(args.personaUri ?? ''))),
+                publicPersona(
+                  await getPersonaByUri(principal, String(args.personaUri ?? ''), true),
+                ),
               ),
             );
           case 'personus_list_communities':

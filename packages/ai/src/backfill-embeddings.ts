@@ -12,6 +12,7 @@ import { db } from '@personus/db';
 import { isNull } from '@personus/db/orm';
 import { personas } from '@personus/db/schema';
 import { updatePersonaEmbedding } from '@personus/db/services';
+import { logger } from '@personus/logger';
 import { embedPersona } from './embeddings';
 
 async function main(): Promise<void> {
@@ -47,6 +48,6 @@ async function main(): Promise<void> {
 main()
   .then(() => process.exit(0))
   .catch((err) => {
-    console.error('[embeddings] failed:', err);
+    logger.error({ err: String(err) }, 'embeddings backfill failed');
     process.exit(1);
   });

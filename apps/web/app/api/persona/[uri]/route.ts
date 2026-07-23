@@ -17,9 +17,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ uri: str
     return NextResponse.json({ error: 'discovery disabled' }, { status: 403 });
   }
   const { uri } = await params;
+  if (!/^[a-z0-9-]{1,100}$/.test(uri)) {
+    return NextResponse.json({ error: 'not found' }, { status: 404 });
+  }
   try {
     const principal = getAnonymousMcpPrincipal(req);
-    const row = await getPersonaByUri(principal, uri);
+    const row = await getPersonaByUri(principal, uri, true);
     if (!row) return NextResponse.json({ error: 'not found' }, { status: 404 });
     return NextResponse.json(toPublicPersona(row));
   } catch (err) {

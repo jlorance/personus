@@ -6,7 +6,6 @@ const nextConfig: NextConfig = {
     '@personus/authz',
     '@personus/constants',
     '@personus/db',
-    '@personus/flags',
     '@personus/logger',
   ],
   serverExternalPackages: ['@neondatabase/serverless'],

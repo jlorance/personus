@@ -38,8 +38,10 @@ export type Subjects =
 export type Role = 'user' | 'admin';
 
 // `delete` = soft-delete (writes deleted_at). `purge` = hard-delete escape
-// hatch, never granted to ordinary users — admin/system actors only.
-export type Actions = 'create' | 'read' | 'update' | 'delete' | 'purge' | 'manage';
+// hatch, never granted to ordinary users — admin/system actors only. `index` =
+// write derived search data (embeddings) — granted only to the embeddings worker,
+// distinct from `update` so an ordinary editing principal can't poison vectors.
+export type Actions = 'create' | 'read' | 'update' | 'delete' | 'purge' | 'index' | 'manage';
 
 export type AppAbility = PureAbility<[Actions, Subjects]>;
 

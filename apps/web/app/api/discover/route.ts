@@ -21,13 +21,17 @@ export async function GET(req: Request) {
   }
 
   const url = new URL(req.url);
-  const q = (url.searchParams.get('q') ?? '').trim();
+  const q = (url.searchParams.get('q') ?? '').trim().slice(0, 200);
   if (!q) return NextResponse.json({ error: 'query parameter `q` is required' }, { status: 400 });
   const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? 5) || 5, 1), 25);
 
   try {
     const principal = getAnonymousMcpPrincipal(req);
-    const results = await searchPersonas(principal, { query: q, maxResults: limit });
+    const results = await searchPersonas(principal, {
+      query: q,
+      maxResults: limit,
+      requireMcpEnabled: true,
+    });
     return NextResponse.json({
       query: q,
       results: results.map((r) => ({

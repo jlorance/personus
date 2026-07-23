@@ -52,7 +52,6 @@ export default async function SettingsPage() {
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <input type="hidden" name="key" value={s.key} />
-                  <input type="hidden" name="valueType" value={s.valueType} />
                   <input
                     type={s.valueType === 'number' ? 'number' : 'text'}
                     name="value"

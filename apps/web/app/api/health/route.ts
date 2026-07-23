@@ -9,15 +9,11 @@ import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 
 export function GET() {
+  // Public liveness only — no infrastructure disclosure (which components are
+  // wired is reconnaissance). Detailed readiness belongs behind an internal check.
   return NextResponse.json({
     status: 'ok',
     service: 'personus-web',
     time: new Date().toISOString(),
-    configured: {
-      database: Boolean(process.env.DATABASE_URL),
-      auth: (process.env.AUTH_PROVIDER ?? 'clerk') && Boolean(process.env.CLERK_SECRET_KEY),
-      flags: process.env.FLAGS_PROVIDER ?? 'db',
-      openai: Boolean(process.env.OPENAI_API_KEY),
-    },
   });
 }

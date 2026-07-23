@@ -49,7 +49,8 @@ export function notDeleted(table: { deletedAt: Column }) {
   return isNull(table.deletedAt);
 }
 
-function principalTag(principal: ServicePrincipal): string {
+/** Canonical `created_by`/`updated_by` tag for a principal (user or system). */
+export function principalTag(principal: ServicePrincipal): string {
   return principal.userId ? `user:${principal.userId}` : 'system';
 }
 
