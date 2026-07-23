@@ -1,40 +1,64 @@
-'use client';
+import Link from 'next/link';
+import { type LedgerEntry, LedgerRow } from '@/components/ledger-row';
+import { Button } from '@/components/ui/button';
 
-import { CopilotSidebar } from '@copilotkit/react-ui';
+// Illustrative register entries for the landing preview (clearly labelled as such).
+const SAMPLE: LedgerEntry[] = [
+  {
+    uri: 'per_mariaosei',
+    displayName: 'Maria Osei',
+    capability: 'Restores Victorian plumbing; teaches apprentices on weekends.',
+    endorsements: 12,
+  },
+  {
+    uri: 'per_dtanaka',
+    displayName: 'Daniel Tanaka',
+    capability: 'Ships Postgres-heavy backends; unusually calm in an incident.',
+    endorsements: 7,
+  },
+  {
+    uri: 'per_lenoir',
+    displayName: 'Amélie Lenoir',
+    capability: 'Turns messy field research into decisions people act on.',
+    endorsements: 9,
+  },
+];
 
 export default function Home() {
   return (
-    <main
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        padding: '3rem',
-        maxWidth: 820,
-        margin: '0 auto',
-      }}
-    >
-      <p style={{ letterSpacing: '0.2em', textTransform: 'uppercase', opacity: 0.6, fontSize: 12 }}>
-        Personus · foundation
-      </p>
-      <h1 style={{ fontSize: '2.75rem', lineHeight: 1.1, margin: '0.5rem 0 1rem' }}>
-        Your value is what you can <span style={{ color: 'var(--accent)' }}>do</span>.
-      </h1>
-      <p style={{ fontSize: '1.1rem', opacity: 0.8, maxWidth: 560 }}>
-        This is the fresh Personus monorepo — Next.js 16, Mastra 1.51, Drizzle V1, CopilotKit
-        agentic UI, CASL authorization, and pluggable Auth &amp; feature-flag providers. Open the
-        coach on the right and start building your persona.
-      </p>
+    <main>
+      <section className="hero shell border-b border-border py-20 md:py-24">
+        <p className="eyebrow reveal">Capability, indexed</p>
+        <h1 className="hero__thesis reveal">
+          Your value is what you can <em>do</em>.
+        </h1>
+        <p className="hero__lede reveal max-w-[52ch] text-lg leading-relaxed text-muted-foreground">
+          Personus is a register of the capable — people indexed by what they can do and vouched for
+          by those who&apos;ve seen them do it. Not a feed. A directory of trust.
+        </p>
+        <div className="reveal mt-8 flex flex-wrap gap-3">
+          <Button asChild>
+            <Link href="/coach">Build your persona</Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link href="/explore">Search the register</Link>
+          </Button>
+        </div>
+      </section>
 
-      <CopilotSidebar
-        defaultOpen
-        labels={{
-          title: 'Persona Coach',
-          initial:
-            "Hi! I'm your Persona Coach. Tell me about yourself and I'll help you build your profile — let's start with one sentence on what you do.",
-        }}
-      />
+      <section className="shell py-14">
+        <div className="mb-6 flex items-baseline justify-between">
+          <h2 className="display text-3xl">A glimpse of the register</h2>
+          <span className="font-mono text-xs uppercase tracking-[0.16em] text-muted-foreground">
+            illustrative
+          </span>
+        </div>
+        <div>
+          {SAMPLE.map((e, i) => (
+            <LedgerRow key={e.uri} index={i + 1} entry={e} />
+          ))}
+        </div>
+      </section>
     </main>
   );
 }
