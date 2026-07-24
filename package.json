@@ -17,6 +17,7 @@
     "test": "turbo test",
     "test:coverage": "vitest run --coverage --config vitest.coverage.config.ts",
     "test:load": "artillery run test/artillery/smoke.yml",
+    "docs:validate": "bun scripts/docs/validate.mjs",
     "db:generate": "bun run --cwd packages/db db:generate",
     "db:migrate": "bun run --cwd packages/db db:migrate",
     "db:push": "bun run --cwd packages/db db:push",

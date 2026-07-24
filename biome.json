@@ -49,6 +49,7 @@
       "includes": [
         "packages/logger/src/**/*.ts",
         "packages/db/src/seed/**/*.ts",
+        "scripts/**",
         "**/*.test.ts",
         "**/*.test.tsx",
         "test/**/*.ts"
