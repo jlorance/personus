@@ -66,6 +66,18 @@ export function owns(row: { userId: bigint }, principal: ServicePrincipal): bool
 }
 
 /**
+ * Platform superuser marker. A platform admin (role=admin → `manage AdminSurface`)
+ * bypasses ownership / community-membership scoping at the RESOURCE-management
+ * gates below — one role, no per-community grant. Deliberately NOT wired into
+ * `owns()` itself: the impersonation gates (acting FROM another user's persona —
+ * contact requests, endorsements, joins) stay owner-only. Every admin action
+ * still flows through the audit log tagged as the admin actor.
+ */
+export function isPlatformAdmin(principal: ServicePrincipal): boolean {
+  return principal.ability.can('manage', 'AdminSurface');
+}
+
+/**
  * Persona-scoped shared-community test behind `'community'` persona visibility:
  * true when `viewerUserId` belongs to a community that persona `personaId` is
  * ALSO a member of (via community_members). Persona-scoped, not owner-scoped —
@@ -140,7 +152,7 @@ export async function updatePersona(
     .where(and(eq(personas.uri, uri), notDeleted(personas)))
     .limit(1);
   if (!existing) return null;
-  if (!owns(existing, principal)) throw new ForbiddenError();
+  if (!owns(existing, principal) && !isPlatformAdmin(principal)) throw new ForbiddenError();
 
   // Defense-in-depth: only ever write allowlisted columns, even if a caller
   // (or the model-driven coach tool, whose `field` is a free string) supplies
@@ -175,7 +187,7 @@ export async function updatePersonaTraits(
     .where(and(eq(personas.uri, uri), notDeleted(personas)))
     .limit(1);
   if (!existing) return null;
-  if (!owns(existing, principal)) throw new ForbiddenError();
+  if (!owns(existing, principal) && !isPlatformAdmin(principal)) throw new ForbiddenError();
 
   const tag = principalTag(principal);
   const [updated] = await db

@@ -25,7 +25,12 @@ import {
 } from '../orm';
 import { communityMembers, endorsements, personas } from '../schema';
 import { canViewPersona, type Viewer } from './gates';
-import { ForbiddenError, personaSharesCommunity, type ServicePrincipal } from './index';
+import {
+  ForbiddenError,
+  isPlatformAdmin,
+  personaSharesCommunity,
+  type ServicePrincipal,
+} from './index';
 
 export interface PersonaSearchResult {
   uri: string;
@@ -91,6 +96,10 @@ export async function searchPersonas(
     MAX_SEARCH_RESULTS,
   );
   const mcpFilter = opts.requireMcpEnabled ? eq(personas.mcpEnabled, true) : undefined;
+  // Platform superuser searches across all visibility tiers.
+  const vfilter = isPlatformAdmin(principal)
+    ? undefined
+    : visibilityFilter(depth, principal.userId);
 
   const endorsementCount = sql<number>`(
     select count(*)::int from ${endorsements}
@@ -113,14 +122,7 @@ export async function searchPersonas(
         similarity,
       })
       .from(personas)
-      .where(
-        and(
-          isNull(personas.deletedAt),
-          visibilityFilter(depth, principal.userId),
-          isNotNull(personas.embedding),
-          mcpFilter,
-        ),
-      )
+      .where(and(isNull(personas.deletedAt), vfilter, isNotNull(personas.embedding), mcpFilter))
       .orderBy(sql`${similarity} desc`)
       .limit(limit);
     return rows.map((r) => ({ ...r, headline: r.headline ?? '' }));
@@ -144,14 +146,7 @@ export async function searchPersonas(
       endorsementCount,
     })
     .from(personas)
-    .where(
-      and(
-        isNull(personas.deletedAt),
-        visibilityFilter(depth, principal.userId),
-        textMatch,
-        mcpFilter,
-      ),
-    )
+    .where(and(isNull(personas.deletedAt), vfilter, textMatch, mcpFilter))
     .orderBy(sql`${personas.completenessScore} desc nulls last`)
     .limit(limit);
 
@@ -207,6 +202,9 @@ export async function getPersonaByUri(
     .where(and(eq(personas.uri, uri), isNull(personas.deletedAt)))
     .limit(1);
   if (!row) return null;
+  // Platform superuser sees any persona (support/moderation), regardless of
+  // visibility or MCP opt-in.
+  if (isPlatformAdmin(principal)) return row;
   if (requireMcpEnabled && row.mcpEnabled !== true) return null;
 
   const viewer: Viewer = { userId: principal.userId, networkDepth: principal.networkDepth ?? 1 };

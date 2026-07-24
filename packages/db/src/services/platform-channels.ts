@@ -11,7 +11,13 @@
 import { db } from '../index';
 import { and, eq, isNull } from '../orm';
 import { communityMembers, platformChannelBindings } from '../schema';
-import { ForbiddenError, NotFoundError, type ServicePrincipal, toBigId } from './index';
+import {
+  ForbiddenError,
+  isPlatformAdmin,
+  NotFoundError,
+  type ServicePrincipal,
+  toBigId,
+} from './index';
 
 async function memberRole(
   principal: ServicePrincipal,
@@ -35,6 +41,7 @@ async function assertCommunityAdmin(
   principal: ServicePrincipal,
   communityId: bigint,
 ): Promise<void> {
+  if (isPlatformAdmin(principal)) return; // platform superuser manages any community
   if ((await memberRole(principal, communityId)) !== 'admin') throw new ForbiddenError();
 }
 
@@ -119,8 +126,9 @@ export async function listPlatformChannels(
 ): Promise<BindingView[]> {
   if (!principal.userId || !principal.ability.can('read', 'Community')) return [];
   const cid = toBigId(communityId);
-  // Membership gate — an authenticated non-member must not enumerate a community's bindings.
-  if ((await memberRole(principal, cid)) === null) return [];
+  // Membership gate — an authenticated non-member must not enumerate a community's
+  // bindings; a platform superuser may, for support/moderation.
+  if (!isPlatformAdmin(principal) && (await memberRole(principal, cid)) === null) return [];
 
   const rows = await db
     .select({
