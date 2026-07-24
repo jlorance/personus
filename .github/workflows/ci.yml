@@ -41,6 +41,8 @@ jobs:
         run: bunx @biomejs/biome check .
       - name: Validate docs bundle (OKF)
         run: bun run docs:validate
+      - name: Authz surface guard (every route/action resolves a principal)
+        run: bun run authz:check
       - name: Test (unit + integration)
         run: bun run test
       - name: Coverage

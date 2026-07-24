@@ -58,6 +58,23 @@
         "test/**/*.ts"
       ],
       "linter": { "rules": { "suspicious": { "noConsole": "off" } } }
+    },
+    {
+      "includes": ["apps/web/app/**", "apps/admin/app/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "@personus/db": "Route/action code must not import the raw db client — use principal-gated services from '@personus/db/services'. (authz chokepoint; system-only exceptions need an inline biome-ignore)"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   ],
   "assist": { "enabled": true }
