@@ -37,3 +37,13 @@ AI-native capability-discovery network. Monorepo (Turborepo + Bun workspaces).
 - **Integration tests** (`packages/db/src/services/services.integration.test.ts`) exercise the service layer against a **real Postgres 17 + pgvector**. They run only when `TEST_DATABASE_URL` is set (CI uses the `pgvector/pgvector:pg17` service); otherwise they skip. The harness (`packages/db/src/test/harness.ts`) applies the committed migration; if pgvector is unavailable it falls back to a vector-free DDL so the suite still runs on plain Postgres.
 - Local run: `brew install postgresql@17 pgvector`, `initdb` a throwaway cluster, `createdb`, then `TEST_DATABASE_URL=… bun run test:coverage`. Verified locally on PostgreSQL 17 + pgvector 0.8.5 (real `vector(1536)` columns + `ivfflat` indexes).
 - Coverage: pure logic ~100% (`gates.ts`); the service layer is ~93% under the integration suite. Agents and Next routes still need e2e coverage.
+
+## graphify
+
+This project has a graphify knowledge graph at graphify-out/.
+
+Rules:
+- Before answering architecture or codebase questions, read graphify-out/GRAPH_REPORT.md for god nodes and community structure
+- If graphify-out/wiki/index.md exists, navigate it instead of reading raw files
+- For cross-module "how does X relate to Y" questions, prefer `graphify query "<question>"`, `graphify path "<A>" "<B>"`, or `graphify explain "<concept>"` over grep — these traverse the graph's EXTRACTED + INFERRED edges instead of scanning files
+- After modifying code files in this session, run `graphify update .` to keep the graph current (AST-only, no API cost)
