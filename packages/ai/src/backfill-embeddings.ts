@@ -17,7 +17,7 @@ import { embedPersona } from './embeddings';
 
 async function main(): Promise<void> {
   if (!process.env.OPENAI_API_KEY) {
-    console.error('[embeddings] OPENAI_API_KEY not set — nothing to do.');
+    logger.error('[embeddings] OPENAI_API_KEY not set — nothing to do.');
     process.exit(1);
   }
   const principal = getSystemPrincipal(embeddingsWorker);
@@ -33,7 +33,7 @@ async function main(): Promise<void> {
     .from(personas)
     .where(isNull(personas.embedding));
 
-  console.log(`[embeddings] ${rows.length} personas to embed…`);
+  logger.info(`[embeddings] ${rows.length} personas to embed…`);
   let done = 0;
   for (const p of rows) {
     const vec = await embedPersona(p);
@@ -42,7 +42,7 @@ async function main(): Promise<void> {
       done++;
     }
   }
-  console.log(`[embeddings] embedded ${done}/${rows.length}.`);
+  logger.info(`[embeddings] embedded ${done}/${rows.length}.`);
 }
 
 main()

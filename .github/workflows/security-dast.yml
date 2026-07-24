@@ -1,0 +1,77 @@
+name: Security DAST (nuclei)
+
+# Dynamic (runtime) vulnerability scanning to complement the SAST/code-review
+# gates in ci.yml. Scans deployed URLs, not source.
+on:
+  # Primary insertion point. Vercel posts a GitHub deployment_status when a build
+  # goes live; this fires on:
+  #   - a PR's *preview* deployment (the actual release candidate for a PR to main), and
+  #   - the *production* deployment after merge.
+  # Both Vercel projects (web + admin) are covered automatically — each posts its
+  # own deployment_status, so each gets scanned.
+  deployment_status:
+
+  # Baseline: catches config drift, newly published templates, and subdomain
+  # takeovers that aren't tied to a code change.
+  schedule:
+    - cron: "0 7 * * 1" # Mondays 07:00 UTC
+
+  # On-demand, with an optional one-off target override.
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "One-off target URL (defaults to production targets)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: dast-${{ github.event.deployment_status.environment_url || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Scan a freshly-deployed Vercel URL: PR preview (release candidate) or prod.
+  deployment:
+    if: >-
+      github.event_name == 'deployment_status' &&
+      github.event.deployment_status.state == 'success' &&
+      github.event.deployment_status.environment_url != ''
+    uses: ./.github/workflows/_nuclei-scan.yml
+    with:
+      target: ${{ github.event.deployment_status.environment_url }}
+
+  # Resolve production targets for scheduled / manual runs.
+  targets:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      list: ${{ steps.resolve.outputs.list }}
+    steps:
+      - id: resolve
+        env:
+          DISPATCH_TARGET: ${{ inputs.target }}
+          # Override by setting repo variable NUCLEI_PROD_TARGETS to a JSON array,
+          # e.g. ["https://app.personus.ai","https://admin.personus.ai"].
+          PROD_TARGETS: ${{ vars.NUCLEI_PROD_TARGETS }}
+        run: |
+          if [ -n "$DISPATCH_TARGET" ]; then
+            printf 'list=["%s"]\n' "$DISPATCH_TARGET" >> "$GITHUB_OUTPUT"
+          elif [ -n "$PROD_TARGETS" ]; then
+            echo "list=$PROD_TARGETS" >> "$GITHUB_OUTPUT"
+          else
+            echo 'list=["https://app.personus.ai","https://admin.personus.ai"]' >> "$GITHUB_OUTPUT"
+          fi
+
+  production:
+    needs: targets
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.targets.outputs.list) }}
+    uses: ./.github/workflows/_nuclei-scan.yml
+    with:
+      target: ${{ matrix.target }}

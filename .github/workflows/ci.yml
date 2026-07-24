@@ -39,6 +39,8 @@ jobs:
         run: bun run type-check
       - name: Lint
         run: bunx @biomejs/biome check .
+      - name: Validate docs bundle (OKF)
+        run: bun run docs:validate
       - name: Test (unit + integration)
         run: bun run test
       - name: Coverage
