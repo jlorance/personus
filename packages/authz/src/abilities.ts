@@ -72,6 +72,15 @@ const PURGE_SUBJECTS: Subjects[] = [
   'CommunityType',
 ];
 
+/** Community-scoped subjects a community admin `manage`s — but may NOT purge. */
+const COMMUNITY_MANAGED_SUBJECTS: Subjects[] = [
+  'Membership',
+  'GuildTaxonomy',
+  'GuildOffering',
+  'GuildRequest',
+  'PlatformChannel',
+];
+
 /** Build CASL abilities for an authenticated user. Default deny, owner grants. */
 export function defineAbilitiesFor(context: AbilityContext): AppAbility {
   const { can, cannot, build } = new AbilityBuilder<AppAbility>(createMongoAbility);
@@ -136,6 +145,14 @@ export function defineAbilitiesFor(context: AbilityContext): AppAbility {
     can('manage', 'GuildOffering');
     can('manage', 'GuildRequest');
     can('manage', 'PlatformChannel');
+    // A community admin fully manages their community — including `delete`
+    // (soft-delete) — but NOT `purge` (hard-delete), which stays reserved to
+    // platform admins / system actors. `manage` is a CASL wildcard that would
+    // otherwise grant purge, so invert it explicitly. Guarded on role so a
+    // PLATFORM admin who also runs a community keeps their purge grant.
+    if (role !== 'admin') {
+      for (const s of COMMUNITY_MANAGED_SUBJECTS) cannot('purge', s);
+    }
   }
 
   // Self-service join/leave — the service scopes create/delete to the caller's
