@@ -100,7 +100,9 @@ const MATRIX: Array<[Actions, Subjects, ProfileName[]]> = [
   // Guild sub-area — read by members; managed only by the community admin.
   ['read', 'GuildRequest', AUTHED],
   ['manage', 'GuildRequest', ['communityAdmin']],
-  // purge on platform-wide subjects — ONLY the platform admin.
+  // purge (HARD-delete) — reserved to the PLATFORM admin on EVERY subject.
+  // Community admins hold `manage` on their community's subjects, but an explicit
+  // cannot('purge') strips hard-delete (see abilities.ts).
   ...(
     [
       'User',
@@ -109,27 +111,26 @@ const MATRIX: Array<[Actions, Subjects, ProfileName[]]> = [
       'ShadowPersona',
       'ContactRequest',
       'Community',
+      'Membership',
       'ActivityEvent',
+      'GuildTaxonomy',
+      'GuildOffering',
+      'GuildRequest',
+      'PlatformChannel',
       'TraitMetadata',
       'TraitTaxonomy',
       'CommunityType',
     ] as Subjects[]
   ).map((s): [Actions, Subjects, ProfileName[]] => ['purge', s, ['admin']]),
-  // purge on COMMUNITY-scoped subjects — platform admin AND the community admin,
-  // because a community admin's `manage <X>` grant is a CASL wildcard that
-  // INCLUDES purge. NOTE: this contradicts the "purge = admin/system only"
-  // comment in abilities.ts — flagged for product review (community-admin
-  // hard-delete of memberships/guild data/channels). Asserted here as the true
-  // current behavior so a change is a conscious one.
-  ...(
-    [
-      'Membership',
-      'GuildTaxonomy',
-      'GuildOffering',
-      'GuildRequest',
-      'PlatformChannel',
-    ] as Subjects[]
-  ).map((s): [Actions, Subjects, ProfileName[]] => ['purge', s, ['communityAdmin', 'admin']]),
+  // …but SOFT-delete (`delete`) IS delegated to the community admin. On the
+  // guild/channel subjects only the community admin holds it (a platform admin
+  // removes via `purge`, not soft-delete — they never get the community `manage`
+  // grant). Membership `delete` is broader — every user can leave (self-service).
+  ['delete', 'Membership', AUTHED],
+  ['delete', 'PlatformChannel', ['communityAdmin']],
+  ['delete', 'GuildTaxonomy', ['communityAdmin']],
+  ['delete', 'GuildOffering', ['communityAdmin']],
+  ['delete', 'GuildRequest', ['communityAdmin']],
 ];
 
 describe('authorization matrix (action × subject × principal)', () => {
