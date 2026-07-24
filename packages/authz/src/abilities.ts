@@ -92,6 +92,16 @@ export function defineAbilitiesFor(context: AbilityContext): AppAbility {
     can('manage', 'TraitTaxonomy');
     can('manage', 'TraitMetadata');
     can('manage', 'CommunityType');
+    // Platform superuser over community-scoped resources — one role, no
+    // per-community grant. `manage` = full CRUD + purge. The cross-owner /
+    // cross-community REACH is enforced in the service layer via
+    // isPlatformAdmin() overrides (this grant only opens the action types).
+    can('manage', 'Community');
+    can('manage', 'Membership');
+    can('manage', 'GuildTaxonomy');
+    can('manage', 'GuildOffering');
+    can('manage', 'GuildRequest');
+    can('manage', 'PlatformChannel');
   }
 
   // Personas — create/read/update/delete; ownership filtered in queries/services.

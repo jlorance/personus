@@ -54,12 +54,18 @@ import {
   updateSystemSetting,
 } from './index';
 
-// A permissive authenticated principal — the CASL gate is unit-tested separately;
-// here we exercise the DB-backed ownership/visibility logic.
-const allowAll = { can: () => true };
+// A permissive NON-admin authenticated principal — the CASL gate is unit-tested
+// separately; here we exercise the DB-backed ownership/visibility logic. Crucially
+// it is NOT a platform admin (manage AdminSurface = false), so isPlatformAdmin()
+// overrides don't leak into ordinary ownership/membership tests.
+const nonAdminAbility = {
+  can: (a: string, s: string) => !(a === 'manage' && s === 'AdminSurface'),
+};
+// A platform-superuser ability (manage AdminSurface → isPlatformAdmin true).
+const superAdminAbility = { can: () => true };
 type P = ServicePrincipal & { networkDepth?: 1 | 2 };
 
-async function makeUser(n: number): Promise<P> {
+async function insertUser(n: number): Promise<bigint> {
   const [u] = await db
     .insert(users)
     .values({
@@ -70,7 +76,16 @@ async function makeUser(n: number): Promise<P> {
     })
     .returning();
   await db.insert(userTraits).values({ userId: u.id, createdBy: 'test', updatedBy: 'test' });
-  return { userId: String(u.id), ability: allowAll, networkDepth: 2 };
+  return u.id;
+}
+
+async function makeUser(n: number): Promise<P> {
+  return { userId: String(await insertUser(n)), ability: nonAdminAbility, networkDepth: 2 };
+}
+
+/** A platform-superuser principal (bypasses ownership/membership scoping). */
+async function makeAdmin(n: number): Promise<P> {
+  return { userId: String(await insertUser(n)), ability: superAdminAbility, networkDepth: 2 };
 }
 
 const anon: P = {
@@ -219,6 +234,49 @@ describe.skipIf(!hasTestDb)('service layer (integration)', () => {
       expect(updated?.deletedAt).toBeNull(); // not soft-deleted
       expect(await listMyPersonas(owner)).toHaveLength(1); // still the owner's
       expect(await listMyPersonas(attacker)).toHaveLength(0); // never became attacker's
+    });
+  });
+
+  describe('platform superuser', () => {
+    it('reads, edits, and soft-deletes any persona (not owned)', async () => {
+      const owner = await makeUser(70);
+      const admin = await makeAdmin(71);
+      const p = await createPersona(owner, { displayName: 'Not Mine', visibility: 'private' });
+
+      expect(await getPersonaByUri(admin, p.uri)).not.toBeNull(); // sees a private persona
+      const up = await updatePersona(admin, p.uri, { headline: 'edited by admin' });
+      expect(up?.headline).toBe('edited by admin'); // edits it
+      expect(await deletePersona(admin, p.uri)).toBe(true); // soft-deletes it
+    });
+
+    it('manages a community it is not a member of', async () => {
+      const founder = await makeUser(72);
+      const fp = await createPersona(founder, { displayName: 'Founder' });
+      const c = await createCommunity(founder, {
+        name: 'Not My Guild',
+        foundingPersonaUri: fp.uri,
+      });
+      const admin = await makeAdmin(73); // never joined c
+
+      const binding = await bindPlatformChannel(admin, {
+        communityId: String(c.id),
+        platform: 'slack',
+        externalRef: 'T-super',
+      });
+      expect(binding.platform).toBe('slack');
+      expect((await listPlatformChannels(admin, String(c.id))).length).toBe(1);
+    });
+
+    it('does NOT extend to impersonation — cannot act from another user’s persona', async () => {
+      const victim = await makeUser(74);
+      const vp = await createPersona(victim, { displayName: 'Victim' });
+      const target = await makeUser(75);
+      const tp = await createPersona(target, { displayName: 'Target', visibility: 'public' });
+      const admin = await makeAdmin(76);
+
+      await expect(
+        createContactRequest(admin, { fromPersonaUri: vp.uri, toPersonaUri: tp.uri, reason: 'x' }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
     });
   });
 
@@ -506,7 +564,7 @@ describe.skipIf(!hasTestDb)('service layer (integration)', () => {
 
   describe('system settings (admin)', () => {
     it('lists and updates settings, invalidating the cache', async () => {
-      const admin = await makeUser(50); // allowAll grants manage AdminSurface
+      const admin = await makeAdmin(50);
       await db.insert(systemSettings).values({
         key: 'ai.coach_model',
         value: 'openai/gpt-4o',

@@ -64,14 +64,15 @@ const MATRIX: Array<[Actions, Subjects, ProfileName[]]> = [
   ['manage', 'TraitMetadata', ['admin']],
   ['manage', 'CommunityType', ['admin']],
 
-  // Community management — only the admin OF that community (community-scoped
-  // grant); platform admin does NOT get community management via `manage`.
-  ['manage', 'Membership', ['communityAdmin']],
-  ['manage', 'PlatformChannel', ['communityAdmin']],
-  ['manage', 'GuildTaxonomy', ['communityAdmin']],
-  ['manage', 'GuildOffering', ['communityAdmin']],
-  ['update', 'Community', ['communityAdmin']],
-  ['delete', 'Community', ['communityAdmin']],
+  // Community management — the admin OF that community, PLUS the platform admin
+  // (superuser holds `manage` on all community-scoped subjects; cross-community
+  // reach is enforced in the service layer via isPlatformAdmin()).
+  ['manage', 'Membership', ['communityAdmin', 'admin']],
+  ['manage', 'PlatformChannel', ['communityAdmin', 'admin']],
+  ['manage', 'GuildTaxonomy', ['communityAdmin', 'admin']],
+  ['manage', 'GuildOffering', ['communityAdmin', 'admin']],
+  ['update', 'Community', ['communityAdmin', 'admin']],
+  ['delete', 'Community', ['communityAdmin', 'admin']],
 
   // Endorsements are immutable — no profile may update.
   ['update', 'Endorsement', []],
@@ -99,7 +100,7 @@ const MATRIX: Array<[Actions, Subjects, ProfileName[]]> = [
   ['create', 'ActivityEvent', AUTHED],
   // Guild sub-area — read by members; managed only by the community admin.
   ['read', 'GuildRequest', AUTHED],
-  ['manage', 'GuildRequest', ['communityAdmin']],
+  ['manage', 'GuildRequest', ['communityAdmin', 'admin']],
   // purge (HARD-delete) — reserved to the PLATFORM admin on EVERY subject.
   // Community admins hold `manage` on their community's subjects, but an explicit
   // cannot('purge') strips hard-delete (see abilities.ts).
@@ -122,15 +123,14 @@ const MATRIX: Array<[Actions, Subjects, ProfileName[]]> = [
       'CommunityType',
     ] as Subjects[]
   ).map((s): [Actions, Subjects, ProfileName[]] => ['purge', s, ['admin']]),
-  // …but SOFT-delete (`delete`) IS delegated to the community admin. On the
-  // guild/channel subjects only the community admin holds it (a platform admin
-  // removes via `purge`, not soft-delete — they never get the community `manage`
-  // grant). Membership `delete` is broader — every user can leave (self-service).
+  // …SOFT-delete (`delete`) is held by the community admin AND the platform admin
+  // (both hold `manage` on these subjects). Membership `delete` is broader still —
+  // every user can leave (self-service).
   ['delete', 'Membership', AUTHED],
-  ['delete', 'PlatformChannel', ['communityAdmin']],
-  ['delete', 'GuildTaxonomy', ['communityAdmin']],
-  ['delete', 'GuildOffering', ['communityAdmin']],
-  ['delete', 'GuildRequest', ['communityAdmin']],
+  ['delete', 'PlatformChannel', ['communityAdmin', 'admin']],
+  ['delete', 'GuildTaxonomy', ['communityAdmin', 'admin']],
+  ['delete', 'GuildOffering', ['communityAdmin', 'admin']],
+  ['delete', 'GuildRequest', ['communityAdmin', 'admin']],
 ];
 
 describe('authorization matrix (action × subject × principal)', () => {
