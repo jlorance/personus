@@ -9,6 +9,7 @@
  */
 
 import { auth } from '@personus/auth';
+// biome-ignore lint/style/noRestrictedImports: system-only AuthN lifecycle webhook (GDPR user.deleted). No user principal exists at provider-webhook time; the payload is verified through the auth seam before any write. This is the documented exception to the service-layer chokepoint.
 import { db } from '@personus/db';
 import { eq } from '@personus/db/orm';
 import { users } from '@personus/db/schema';

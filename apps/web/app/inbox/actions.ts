@@ -1,10 +1,7 @@
 'use server';
 
 import { getContactRelay } from '@personus/contact';
-import { db } from '@personus/db';
-import { eq } from '@personus/db/orm';
-import { personas } from '@personus/db/schema';
-import { relayModeFor, respondToContact } from '@personus/db/services';
+import { respondToContact } from '@personus/db/services';
 import { logger } from '@personus/logger';
 import { getTransport } from '@personus/notifications';
 import { revalidatePath } from 'next/cache';
@@ -25,13 +22,8 @@ export async function respondAction(formData: FormData): Promise<void> {
 
   if (decision === 'approved') {
     try {
-      // Resolve the recipient's preferred relay mode from their persona prefs.
-      const [target] = await db
-        .select({ prefs: personas.contactPreferences })
-        .from(personas)
-        .where(eq(personas.uri, result.toPersonaUri))
-        .limit(1);
-      const relay = getContactRelay(relayModeFor(target?.prefs));
+      // Relay mode comes from the gated service — no direct persona read here.
+      const relay = getContactRelay(result.relayMode);
       await relay.deliver({
         contactRequestId: result.request.publicId,
         toPersonaUri: result.toPersonaUri,

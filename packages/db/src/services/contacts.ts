@@ -5,10 +5,11 @@
  * free of delivery concerns.
  */
 
+import type { ContactRelayMode } from '@personus/constants';
 import { db } from '../index';
 import { and, eq, inArray, isNull } from '../orm';
 import { contactRequests, personas } from '../schema';
-import { canRespondToContact, type Viewer } from './gates';
+import { canRespondToContact, relayModeFor, type Viewer } from './gates';
 import { ForbiddenError, NotFoundError, type ServicePrincipal } from './index';
 
 export interface InboxItem {
@@ -53,6 +54,12 @@ export interface RespondResult {
   /** Owner-facing summary the caller can pass to ContactRelay/NotificationTransport. */
   toPersonaUri: string;
   fromLabel: string;
+  /**
+   * Delivery mode resolved from the recipient's persona prefs — returned here so
+   * the caller never has to read the persona directly (keeps contact delivery on
+   * the gated service path). The recipient is the responding principal.
+   */
+  relayMode: ContactRelayMode;
 }
 
 /**
@@ -77,7 +84,7 @@ export async function respondToContact(
   if (!req) throw new NotFoundError('Contact request not found');
 
   const [target] = await db
-    .select({ userId: personas.userId })
+    .select({ userId: personas.userId, contactPreferences: personas.contactPreferences })
     .from(personas)
     .where(and(eq(personas.uri, req.toPersonaUri), isNull(personas.deletedAt)))
     .limit(1);
@@ -106,5 +113,6 @@ export async function respondToContact(
     request: updated,
     toPersonaUri: req.toPersonaUri,
     fromLabel: req.fromPersonaUri ?? 'an anonymous visitor',
+    relayMode: relayModeFor(target?.contactPreferences),
   };
 }
