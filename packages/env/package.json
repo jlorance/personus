@@ -1,20 +1,17 @@
 {
-  "name": "@personus/flags",
+  "name": "@personus/env",
   "version": "0.0.0",
   "private": true,
   "exports": {
-    ".": "./src/index.ts",
-    "./providers": "./src/providers/index.ts"
+    ".": "./src/index.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
-    "@openfeature/server-sdk": "^1.22.0",
-    "@personus/db": "workspace:*",
-    "@personus/env": "workspace:*",
-    "@personus/logger": "workspace:*"
+    "@personus/logger": "workspace:*",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "@personus/typescript-config": "workspace:*",

@@ -1,17 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { calculateCompleteness } from './completeness';
 
+// Without a DATABASE_URL these unit tests exercise the fail-closed path:
+// `getSetting` returns DEFAULT_COMPLETENESS_WEIGHTS, so the scores below match
+// the seeded defaults exactly.
 describe('calculateCompleteness', () => {
-  it('scores an empty persona at 0 and suggests every dimension', () => {
-    const { score, breakdown, nextSuggestions } = calculateCompleteness({});
+  it('scores an empty persona at 0 and suggests every dimension', async () => {
+    const { score, breakdown, nextSuggestions } = await calculateCompleteness({});
     expect(score).toBe(0);
     expect(Object.values(breakdown).every((v) => v === false)).toBe(true);
     expect(nextSuggestions).toContain('Headline');
     expect(nextSuggestions).toContain('Skills');
   });
 
-  it('credits filled dimensions and omits them from suggestions', () => {
-    const { score, breakdown, nextSuggestions } = calculateCompleteness({
+  it('credits filled dimensions and omits them from suggestions', async () => {
+    const { score, breakdown, nextSuggestions } = await calculateCompleteness({
       headline: 'Restores Victorian plumbing',
       traits: { skills: [{ name: 'Plumbing' }], values: ['Craftsmanship'] },
     });
@@ -22,8 +25,8 @@ describe('calculateCompleteness', () => {
     expect(nextSuggestions).toContain('Offerings');
   });
 
-  it('treats empty strings and empty arrays as unfilled', () => {
-    const { score, breakdown } = calculateCompleteness({
+  it('treats empty strings and empty arrays as unfilled', async () => {
+    const { score, breakdown } = await calculateCompleteness({
       headline: '   ',
       traits: { skills: [] },
     });
@@ -32,8 +35,8 @@ describe('calculateCompleteness', () => {
     expect(score).toBe(0);
   });
 
-  it('caps a fully-filled persona at 100', () => {
-    const { score } = calculateCompleteness({
+  it('caps a fully-filled persona at 100', async () => {
+    const { score } = await calculateCompleteness({
       headline: 'h',
       traits: {
         skills: ['a'],

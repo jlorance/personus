@@ -8,6 +8,7 @@
  * otherwise it falls back to a text match over displayName/headline/traits.
  */
 
+import { DEFAULT_SEARCH_RESULTS, MAX_SEARCH_RESULTS } from '@personus/constants';
 import { db } from '../index';
 import { and, cosineDistance, eq, ilike, isNotNull, isNull, or, type SQL, sql } from '../orm';
 import { endorsements, personas } from '../schema';
@@ -54,7 +55,10 @@ export async function searchPersonas(
   if (!principal.ability.can('read', 'Persona')) return [];
 
   const depth = principal.networkDepth ?? 1;
-  const limit = Math.min(Math.max(opts.maxResults ?? 3, 1), 25);
+  const limit = Math.min(
+    Math.max(opts.maxResults ?? DEFAULT_SEARCH_RESULTS, 1),
+    MAX_SEARCH_RESULTS,
+  );
   const mcpFilter = opts.requireMcpEnabled ? eq(personas.mcpEnabled, true) : undefined;
 
   const endorsementCount = sql<number>`(

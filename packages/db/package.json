@@ -23,6 +23,7 @@
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",
     "@personus/constants": "workspace:*",
+    "@personus/env": "workspace:*",
     "drizzle-orm": "1.0.0-rc.4",
     "nanoid": "^5.1.11"
   },

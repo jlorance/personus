@@ -20,10 +20,12 @@
         "@personus/authz": "workspace:*",
         "@personus/constants": "workspace:*",
         "@personus/db": "workspace:*",
+        "@personus/env": "workspace:*",
         "@personus/logger": "workspace:*",
         "next": "16.2.11",
         "react": "19.2.0",
         "react-dom": "19.2.0",
+        "zod": "^3.24.1",
       },
       "devDependencies": {
         "@personus/typescript-config": "workspace:*",
@@ -44,9 +46,11 @@
         "@mastra/core": "1.51.0",
         "@personus/ai": "workspace:*",
         "@personus/auth": "workspace:*",
+        "@personus/compression": "workspace:*",
         "@personus/constants": "workspace:*",
         "@personus/contact": "workspace:*",
         "@personus/db": "workspace:*",
+        "@personus/env": "workspace:*",
         "@personus/flags": "workspace:*",
         "@personus/logger": "workspace:*",
         "@personus/notifications": "workspace:*",
@@ -102,6 +106,7 @@
         "@clerk/nextjs": "^6.37.3",
         "@personus/authz": "workspace:*",
         "@personus/db": "workspace:*",
+        "@personus/env": "workspace:*",
         "@personus/logger": "workspace:*",
         "svix": "^1.45.1",
       },
@@ -117,6 +122,19 @@
       "dependencies": {
         "@casl/ability": "^6.8.0",
         "@personus/db": "workspace:*",
+      },
+      "devDependencies": {
+        "@personus/typescript-config": "workspace:*",
+        "typescript": "^5.7.3",
+        "vitest": "^3.2.4",
+      },
+    },
+    "packages/compression": {
+      "name": "@personus/compression",
+      "version": "0.0.0",
+      "dependencies": {
+        "@personus/env": "workspace:*",
+        "@personus/logger": "workspace:*",
       },
       "devDependencies": {
         "@personus/typescript-config": "workspace:*",
@@ -151,6 +169,7 @@
       "dependencies": {
         "@neondatabase/serverless": "^1.0.2",
         "@personus/constants": "workspace:*",
+        "@personus/env": "workspace:*",
         "drizzle-orm": "1.0.0-rc.4",
         "nanoid": "^5.1.11",
       },
@@ -163,12 +182,26 @@
         "vitest": "^3.2.4",
       },
     },
+    "packages/env": {
+      "name": "@personus/env",
+      "version": "0.0.0",
+      "dependencies": {
+        "@personus/logger": "workspace:*",
+        "zod": "^3.24.1",
+      },
+      "devDependencies": {
+        "@personus/typescript-config": "workspace:*",
+        "typescript": "^5.7.3",
+        "vitest": "^3.2.4",
+      },
+    },
     "packages/flags": {
       "name": "@personus/flags",
       "version": "0.0.0",
       "dependencies": {
         "@openfeature/server-sdk": "^1.22.0",
         "@personus/db": "workspace:*",
+        "@personus/env": "workspace:*",
         "@personus/logger": "workspace:*",
       },
       "devDependencies": {
@@ -830,11 +863,15 @@
 
     "@personus/authz": ["@personus/authz@workspace:packages/authz"],
 
+    "@personus/compression": ["@personus/compression@workspace:packages/compression"],
+
     "@personus/constants": ["@personus/constants@workspace:packages/constants"],
 
     "@personus/contact": ["@personus/contact@workspace:packages/contact"],
 
     "@personus/db": ["@personus/db@workspace:packages/db"],
+
+    "@personus/env": ["@personus/env@workspace:packages/env"],
 
     "@personus/flags": ["@personus/flags@workspace:packages/flags"],
 

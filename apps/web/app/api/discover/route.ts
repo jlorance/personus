@@ -8,6 +8,11 @@
  */
 
 import { getAnonymousMcpPrincipal } from '@personus/auth/principal';
+import {
+  DISCOVERY_DEFAULT_RESULTS,
+  MAX_QUERY_LENGTH,
+  MAX_SEARCH_RESULTS,
+} from '@personus/constants';
 import { searchPersonas } from '@personus/db/services';
 import { flags } from '@personus/flags';
 import { logger } from '@personus/logger';
@@ -21,9 +26,16 @@ export async function GET(req: Request) {
   }
 
   const url = new URL(req.url);
-  const q = (url.searchParams.get('q') ?? '').trim().slice(0, 200);
+  const q = (url.searchParams.get('q') ?? '').trim().slice(0, MAX_QUERY_LENGTH);
   if (!q) return NextResponse.json({ error: 'query parameter `q` is required' }, { status: 400 });
-  const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? 5) || 5, 1), 25);
+  const limit = Math.min(
+    Math.max(
+      Number(url.searchParams.get('limit') ?? DISCOVERY_DEFAULT_RESULTS) ||
+        DISCOVERY_DEFAULT_RESULTS,
+      1,
+    ),
+    MAX_SEARCH_RESULTS,
+  );
 
   try {
     const principal = getAnonymousMcpPrincipal(req);

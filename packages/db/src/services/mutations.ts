@@ -5,6 +5,7 @@
  * as the UI lands.
  */
 
+import { MAX_COMMUNITY_LIST } from '@personus/constants';
 import { db } from '../index';
 import { and, eq, isNull } from '../orm';
 import {
@@ -182,5 +183,5 @@ export async function listCommunities(
     })
     .from(communities)
     .where(and(eq(communities.visibility, 'public'), isNull(communities.deletedAt)))
-    .limit(50);
+    .limit(MAX_COMMUNITY_LIST);
 }

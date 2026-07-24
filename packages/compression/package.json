@@ -1,5 +1,5 @@
 {
-  "name": "@personus/flags",
+  "name": "@personus/compression",
   "version": "0.0.0",
   "private": true,
   "exports": {
@@ -11,8 +11,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@openfeature/server-sdk": "^1.22.0",
-    "@personus/db": "workspace:*",
     "@personus/env": "workspace:*",
     "@personus/logger": "workspace:*"
   },

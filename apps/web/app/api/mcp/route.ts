@@ -13,6 +13,7 @@
  */
 
 import { getAnonymousMcpPrincipal } from '@personus/auth/principal';
+import { compression } from '@personus/compression';
 import {
   getPersonaByUri,
   listCommunities,
@@ -67,8 +68,24 @@ function rpcResult(id: unknown, result: unknown) {
 function rpcError(id: unknown, code: number, message: string) {
   return NextResponse.json({ jsonrpc: '2.0', id, error: { code, message } });
 }
-function toolContent(data: unknown) {
-  return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+/**
+ * Serialize a tool result for the calling LLM, routed through the compression
+ * seam. No-op provider → passthrough (default). When an active compressor
+ * returns a reversible `ref` (a retrieval round-trip we don't yet expose to
+ * external MCP clients), keep the original text so nothing the client can't
+ * reconstruct is ever sent.
+ */
+async function toolContent(data: unknown) {
+  const raw = JSON.stringify(data, null, 2);
+  const { content, ref, originalTokens, compressedTokens } = await compression.compress(raw, {
+    kind: 'json',
+    minTokens: 512,
+  });
+  const text = ref ? raw : content;
+  if (compression.isActive() && !ref && compressedTokens < originalTokens) {
+    logger.info({ originalTokens, compressedTokens }, 'MCP payload compressed');
+  }
+  return { content: [{ type: 'text', text }] };
 }
 
 export async function POST(req: Request) {
@@ -108,7 +125,7 @@ export async function POST(req: Request) {
           case 'personus_search':
             return rpcResult(
               id,
-              toolContent(
+              await toolContent(
                 await searchPersonas(principal, {
                   query: String(args.query ?? ''),
                   maxResults: args.maxResults,
@@ -119,14 +136,14 @@ export async function POST(req: Request) {
           case 'personus_get_persona':
             return rpcResult(
               id,
-              toolContent(
+              await toolContent(
                 publicPersona(
                   await getPersonaByUri(principal, String(args.personaUri ?? ''), true),
                 ),
               ),
             );
           case 'personus_list_communities':
-            return rpcResult(id, toolContent(await listCommunities(principal)));
+            return rpcResult(id, await toolContent(await listCommunities(principal)));
           default:
             return rpcError(id, -32601, `Unknown tool: ${name}`);
         }
@@ -134,7 +151,10 @@ export async function POST(req: Request) {
         // Allowlist the tool name before logging — never log a raw user-supplied value.
         const safeName = TOOLS.some((t) => t.name === name) ? name : '[unknown]';
         logger.error({ err: String(err), tool: safeName }, 'MCP tool execution failed');
-        return rpcResult(id, { ...toolContent({ error: 'Tool execution failed' }), isError: true });
+        return rpcResult(id, {
+          ...(await toolContent({ error: 'Tool execution failed' })),
+          isError: true,
+        });
       }
     }
     default:
