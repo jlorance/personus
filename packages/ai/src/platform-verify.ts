@@ -12,6 +12,7 @@
  */
 
 import crypto from 'node:crypto';
+import { env } from '@personus/env';
 import type { PlatformChannelName } from './platform-channels';
 
 /**
@@ -104,7 +105,7 @@ export function verifyPlatformSignature(
 ): VerifyResult {
   switch (platform) {
     case 'slack': {
-      const secret = process.env.SLACK_SIGNING_SECRET ?? '';
+      const secret = env.SLACK_SIGNING_SECRET ?? '';
       return {
         configured: Boolean(secret),
         ok: verifySlack(
@@ -116,7 +117,7 @@ export function verifyPlatformSignature(
       };
     }
     case 'discord': {
-      const key = process.env.DISCORD_PUBLIC_KEY ?? '';
+      const key = env.DISCORD_PUBLIC_KEY ?? '';
       return {
         configured: Boolean(key),
         ok: verifyDiscord(
@@ -128,7 +129,7 @@ export function verifyPlatformSignature(
       };
     }
     case 'telegram': {
-      const secret = process.env.TELEGRAM_WEBHOOK_SECRET ?? '';
+      const secret = env.TELEGRAM_WEBHOOK_SECRET ?? '';
       return {
         configured: Boolean(secret),
         ok: verifyTelegram(secret, getHeader(headers, 'x-telegram-bot-api-secret-token')),

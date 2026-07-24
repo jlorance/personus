@@ -79,7 +79,8 @@ def auto_labels(graph, communities: dict) -> dict:
     """Name each community after its highest-degree member — reproducible, no hand-mapping."""
     labels = {}
     for cid, members in communities.items():
-        top = max(members, key=lambda n: graph.degree(n)) if members else None
+        # Tiebreak on label so ties don't flip the community name between builds.
+        top = max(members, key=lambda n: (graph.degree(n), graph.nodes[n].get("label", n))) if members else None
         name = graph.nodes[top].get("label", f"Community {cid}") if top else f"Community {cid}"
         labels[cid] = name[:48]
     return labels

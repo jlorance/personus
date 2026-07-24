@@ -17,17 +17,17 @@ let initialized = false;
 
 function selectProvider(): Provider {
   const name = (env.FLAGS_PROVIDER ?? 'db').toLowerCase();
-  switch (name) {
-    case 'db':
-      return new DbProvider();
-    case 'posthog':
-      return createPostHogProvider();
-    case 'launchdarkly':
-      return createLaunchDarklyProvider();
-    default:
-      logger.warn({ provider: name }, 'Unknown FLAGS_PROVIDER — falling back to db');
-      return new DbProvider();
+  if (name === 'db') return new DbProvider();
+  try {
+    if (name === 'posthog') return createPostHogProvider();
+    if (name === 'launchdarkly') return createLaunchDarklyProvider();
+    logger.warn({ provider: name }, 'Unknown FLAGS_PROVIDER — falling back to db');
+  } catch (err) {
+    // A misconfigured/unwired provider must not permanently 500 every flagged
+    // route (initFlags would keep re-throwing). Degrade to the DB provider.
+    logger.error({ provider: name, err: String(err) }, 'FLAGS_PROVIDER unavailable — using db');
   }
+  return new DbProvider();
 }
 
 /** Idempotently register the selected provider with OpenFeature. */

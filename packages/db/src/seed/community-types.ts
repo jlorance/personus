@@ -1,7 +1,7 @@
 /** Community types seed — the 9 canonical community kinds (idempotent). */
 
-import { eq } from 'drizzle-orm';
 import { db } from '../index';
+import { eq } from '../orm';
 import { communityTypes } from '../schema';
 
 interface CommunityTypeSeed {

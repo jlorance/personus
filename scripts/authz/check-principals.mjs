@@ -40,6 +40,8 @@ const ALLOWLIST = {
     'Health check — serves no user data and touches no gated resource.',
   'apps/web/app/api/channels/[platform]/webhook/route.ts':
     'Signature-verified platform webhook (401 on unverified, 403 when disabled); the platform Principal is resolved downstream in handlePlatformMessage.',
+  'apps/web/app/api/webhooks/auth/route.ts':
+    'AuthN provider webhook — verified via auth.verifyWebhook; system lifecycle op (GDPR user.deleted) with no user principal at webhook time.',
 };
 
 /** Recursively collect route.ts / actions.ts under a dir. */
@@ -73,7 +75,11 @@ for (const file of files) {
     continue;
   }
   const src = readFileSync(file, 'utf8');
-  if (!RESOLVERS.some((r) => src.includes(r))) {
+  // Match an actual CALL site (`name(`), not a bare mention — so a resolver named
+  // in a comment or an unused import can't satisfy the guard (false-negative the
+  // review caught).
+  const resolverCall = new RegExp(`\\b(${RESOLVERS.join('|')})\\s*\\(`);
+  if (!resolverCall.test(src)) {
     violations.push(rel);
   }
 }
