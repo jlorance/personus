@@ -8,17 +8,14 @@
  *   - `type` or `status` outside the allowed sets
  *
  * Warnings (never fail — OKF is deliberately permissive/tolerant):
- *   - broken bundle-relative or relative markdown links to other docs
+ *   - broken intra-bundle markdown links, or links that escape the bundle
  *
  * Usage: `bun run docs:validate`
  */
 
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { parseFrontmatter, RESERVED, STATUSES, TYPES, walkMarkdown } from './lib.mjs';
-
-const DOCS = resolve(dirname(fileURLToPath(import.meta.url)), '../../docs');
+import { DOCS, isReserved, parseFrontmatter, STATUSES, TYPES, walkMarkdown } from './lib.mjs';
 
 if (!existsSync(DOCS)) {
   console.error(`docs:validate — no docs bundle at ${DOCS}`);
@@ -29,22 +26,21 @@ const errors = [];
 const warnings = [];
 const files = walkMarkdown(DOCS);
 
-/** Resolve a markdown link target to an absolute path within the bundle, or null if not a local doc link. */
+/** Resolve a markdown doc-link target to an absolute path, or null if not a local doc link. */
 function resolveLink(target, fromFile) {
   const clean = target.split('#')[0].trim();
   if (!clean || /^[a-z]+:/i.test(clean) || clean.startsWith('//')) return null; // external / anchor-only
-  if (!/\.mds?$/.test(clean) && !clean.endsWith('.md')) return null; // only check doc links
+  if (!clean.endsWith('.md')) return null; // only check doc links
   if (clean.startsWith('/')) return resolve(DOCS, `.${clean}`); // bundle-relative
   return resolve(dirname(fromFile), clean); // relative
 }
 
 for (const file of files) {
   const rel = relative(DOCS, file);
-  const base = rel.split('/').pop();
   const text = readFileSync(file, 'utf8');
   const { data } = parseFrontmatter(text);
 
-  if (!RESERVED.has(base)) {
+  if (!isReserved(rel)) {
     if (!data.type || String(data.type).trim() === '') {
       errors.push(`${rel}: missing required frontmatter field \`type\``);
     } else if (!TYPES.has(data.type)) {
@@ -59,9 +55,14 @@ for (const file of files) {
   // links legitimately point at the old structure — validate their frontmatter
   // but don't nag about their links.
   if (!rel.startsWith('archive/')) {
+    const prefix = `${DOCS}/`;
     for (const m of text.matchAll(/\[[^\]]*\]\(([^)]+)\)/g)) {
       const abs = resolveLink(m[1], file);
-      if (abs && !existsSync(abs)) warnings.push(`${rel}: broken link → ${m[1]}`);
+      if (!abs) continue;
+      // Clamp to the bundle: a resolved path outside DOCS is out-of-bundle
+      // regardless of whether it happens to exist on this machine.
+      if (!abs.startsWith(prefix)) warnings.push(`${rel}: link outside bundle → ${m[1]}`);
+      else if (!existsSync(abs)) warnings.push(`${rel}: broken link → ${m[1]}`);
     }
   }
 }

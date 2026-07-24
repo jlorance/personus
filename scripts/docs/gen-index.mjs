@@ -8,11 +8,8 @@
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
-import { dirname, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { parseFrontmatter, RESERVED, walkMarkdown } from './lib.mjs';
-
-const DOCS = resolve(dirname(fileURLToPath(import.meta.url)), '../../docs');
+import { relative, resolve } from 'node:path';
+import { DOCS, isReserved, parseFrontmatter, walkMarkdown } from './lib.mjs';
 
 const SECTIONS = [
   [
@@ -40,8 +37,9 @@ const STATUS_BADGE = {
 const bySection = new Map(SECTIONS.map(([k]) => [k, []]));
 for (const file of walkMarkdown(DOCS)) {
   const rel = relative(DOCS, file);
-  const base = rel.split('/').pop();
-  if (RESERVED.has(base) || rel === '_okf.md') continue;
+  // Skip the two reserved root files and the conventions doc (meta, not a
+  // listed concept). All three are still frontmatter-validated by docs:validate.
+  if (isReserved(rel) || rel === '_okf.md') continue;
   const top = rel.split('/')[0];
   if (!bySection.has(top)) continue;
   const { data } = parseFrontmatter(readFileSync(file, 'utf8'));

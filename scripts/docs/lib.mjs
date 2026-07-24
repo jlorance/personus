@@ -8,10 +8,20 @@
  */
 
 import { readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-/** Reserved OKF filenames that are NOT concept files (no frontmatter required). */
-export const RESERVED = new Set(['index.md', 'log.md']);
+/** Absolute path to the docs bundle root (shared by all the doc scripts). */
+export const DOCS = resolve(dirname(fileURLToPath(import.meta.url)), '../../docs');
+
+/**
+ * Reserved OKF files that are NOT concept files — only the two generated files
+ * at the bundle ROOT. Matched on the bundle-relative path, not the basename, so
+ * a future `docs/foo/log.md` is still a normal concept file that needs `type`.
+ */
+export function isReserved(bundleRelPath) {
+  return bundleRelPath === 'index.md' || bundleRelPath === 'log.md';
+}
 
 /** Allowed values for our two enum fields. `type` is OKF-required. */
 export const TYPES = new Set(['foundation', 'spec', 'decision', 'guide', 'research', 'prd']);
@@ -38,9 +48,8 @@ export function parseFrontmatter(text) {
     const key = line.slice(0, idx).trim();
     let value = line.slice(idx + 1).trim();
     if (value.startsWith('[') && value.endsWith(']')) {
-      value = value
-        .slice(1, -1)
-        .split(',')
+      // Quote-aware split so a quoted element containing a comma stays intact.
+      value = (value.slice(1, -1).match(/"[^"]*"|'[^']*'|[^,]+/g) ?? [])
         .map((s) => s.trim().replace(/^["']|["']$/g, ''))
         .filter(Boolean);
     } else {

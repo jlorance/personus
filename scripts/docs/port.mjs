@@ -15,11 +15,11 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { parseFrontmatter, stringifyFrontmatter, walkMarkdown } from './lib.mjs';
+import { DOCS as DST, parseFrontmatter, stringifyFrontmatter, walkMarkdown } from './lib.mjs';
 
-const SRC = '/Users/jlorance/Code/current/personus/docs';
-const DST = resolve(dirname(fileURLToPath(import.meta.url)), '../../docs');
+// One-shot legacy import. Override the source via LEGACY_DOCS_SRC to re-run on
+// another machine; the default is the original developer-local legacy repo.
+const SRC = process.env.LEGACY_DOCS_SRC ?? '/Users/jlorance/Code/current/personus/docs';
 
 // ── Reconciliation: legacy names → shipped-code names (body only, ported files) ──
 const RECONCILE = [
@@ -307,6 +307,9 @@ function injectNote(body) {
 
 function write(dstRel, content) {
   const abs = resolve(DST, dstRel);
+  // Confine writes to the bundle — a `..` in a resolved dest (e.g. from a symlink
+  // in SRC) must never let the port escape docs/.
+  if (abs !== DST && !abs.startsWith(`${DST}/`)) throw new Error(`path escape: ${abs}`);
   mkdirSync(dirname(abs), { recursive: true });
   writeFileSync(abs, content);
 }
