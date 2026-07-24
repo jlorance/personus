@@ -1,10 +1,11 @@
+import { env } from '@personus/env';
 import { drizzle } from 'drizzle-orm/neon-http';
 
 function createDb() {
-  if (!process.env.DATABASE_URL) {
+  if (!env.DATABASE_URL) {
     throw new Error('DATABASE_URL environment variable is not set');
   }
-  return drizzle(process.env.DATABASE_URL);
+  return drizzle(env.DATABASE_URL);
 }
 
 // Lazy proxy — avoids build-time crashes when DATABASE_URL is absent (e.g.

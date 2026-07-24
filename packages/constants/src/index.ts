@@ -66,3 +66,21 @@ export type ContactRelayMode = (typeof CONTACT_RELAY_MODES)[number];
 /** NotificationTransport — ordinary UX notification delivery. */
 export const NOTIFICATION_TRANSPORTS = ['in_app', 'email', 'digest'] as const;
 export type NotificationTransport = (typeof NOTIFICATION_TRANSPORTS)[number];
+
+/**
+ * Search & pagination limits. Named here so the shared ceiling isn't duplicated
+ * across the service layer and the REST/UI callers, and so the intentional
+ * per-surface default divergence is explicit rather than a bare literal.
+ */
+/** Service-layer default when a caller omits `maxResults`. */
+export const DEFAULT_SEARCH_RESULTS = 3;
+/** Hard ceiling on any single search request. */
+export const MAX_SEARCH_RESULTS = 25;
+/** REST discovery default (deliberately a touch higher than the agent default). */
+export const DISCOVERY_DEFAULT_RESULTS = 5;
+/** Explore page result count (semantic + text-fallback). */
+export const EXPLORE_PAGE_SIZE = 12;
+/** Max accepted length of a free-text search query string. */
+export const MAX_QUERY_LENGTH = 200;
+/** Max anonymous community list size. */
+export const MAX_COMMUNITY_LIST = 50;

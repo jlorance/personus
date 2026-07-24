@@ -10,6 +10,7 @@
       "**/*.json",
       "!**/.next",
       "!**/dist",
+      "!**/graphify-out/**",
       "!packages/db/drizzle/**/*"
     ]
   },

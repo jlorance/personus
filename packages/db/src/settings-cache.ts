@@ -7,11 +7,14 @@
  * (@personus/flags) sits on top of.
  */
 
+import { env } from '@personus/env';
 import { eq } from 'drizzle-orm';
 import { db } from './index';
 import { type SystemSetting, systemSettings } from './schema/system-settings';
 
-const BOOTSTRAP_TTL_MS = 60_000;
+// Per-key TTL for the in-process settings cache. Overridable per environment
+// (e.g. shorter in prod for faster admin-edit propagation) via SETTINGS_CACHE_TTL_MS.
+const BOOTSTRAP_TTL_MS = env.SETTINGS_CACHE_TTL_MS ?? 60_000;
 
 interface CacheEntry {
   value: unknown;

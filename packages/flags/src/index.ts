@@ -8,6 +8,7 @@
  */
 
 import { OpenFeature, type Provider } from '@openfeature/server-sdk';
+import { env } from '@personus/env';
 import { logger } from '@personus/logger';
 import { DbProvider } from './providers/db-provider';
 import { createLaunchDarklyProvider, createPostHogProvider } from './providers/stubs';
@@ -15,7 +16,7 @@ import { createLaunchDarklyProvider, createPostHogProvider } from './providers/s
 let initialized = false;
 
 function selectProvider(): Provider {
-  const name = (process.env.FLAGS_PROVIDER ?? 'db').toLowerCase();
+  const name = (env.FLAGS_PROVIDER ?? 'db').toLowerCase();
   switch (name) {
     case 'db':
       return new DbProvider();

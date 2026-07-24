@@ -8,13 +8,14 @@
  * the request-context reader (current session). Both are module singletons.
  */
 
+import { env } from '@personus/env';
 import { logger } from '@personus/logger';
 import { ClerkProvider, clerkServerAuth } from './clerk';
 import type { AuthProvider, ServerAuth } from './provider';
 import { WorkOSProvider, workosServerAuth } from './workos';
 
 function select(): { provider: AuthProvider; serverAuth: ServerAuth } {
-  const name = (process.env.AUTH_PROVIDER ?? 'clerk').toLowerCase();
+  const name = (env.AUTH_PROVIDER ?? 'clerk').toLowerCase();
   switch (name) {
     case 'clerk':
       return { provider: new ClerkProvider(), serverAuth: clerkServerAuth };

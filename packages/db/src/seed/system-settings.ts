@@ -42,11 +42,18 @@ export const SYSTEM_SETTINGS: readonly SettingDef[] = [
     description: 'LLM model for the Persona Coach agent',
   },
   {
-    key: 'ai.coach_temperature',
-    value: 0.7,
-    valueType: 'number',
+    key: 'ai.discovery_model',
+    value: 'openai/gpt-4o',
+    valueType: 'string',
     category: 'ai',
-    description: 'Temperature for coach agents (0.0-2.0)',
+    description: 'LLM model for the Discovery agent',
+  },
+  {
+    key: 'ai.recommender_model',
+    value: 'openai/gpt-4o',
+    valueType: 'string',
+    category: 'ai',
+    description: 'LLM model for the Recommender agent',
   },
   {
     key: 'ai.embedding_model',
@@ -61,6 +68,21 @@ export const SYSTEM_SETTINGS: readonly SettingDef[] = [
     valueType: 'number',
     category: 'ai',
     description: 'Vector dimensions (LOCKED — must match the pgvector column)',
+  },
+  {
+    key: 'ai.completeness_weights',
+    value: {
+      headline: 15,
+      skills: 20,
+      qualities: 15,
+      values: 10,
+      seekingOpportunities: 10,
+      offerings: 15,
+      focusAreas: 15,
+    },
+    valueType: 'json',
+    category: 'ai',
+    description: 'Persona completeness dimension weights — should sum to 100',
   },
 
   // ─── Feature flags (read via @personus/flags DbProvider) ──────────────────

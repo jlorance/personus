@@ -19,6 +19,8 @@ AI-native capability-discovery network. Monorepo (Turborepo + Bun workspaces).
 - `packages/ai` — Mastra instance + agents (Persona Coach / Discovery / Recommender)
 - `packages/contact` — ContactRelay (private mediated contact)
 - `packages/notifications` — NotificationTransport (in-app/email/digest)
+- `packages/compression` — token-compression seam (noop default; Headroom provider off by default, gated on vetting)
+- `packages/env` — zod-validated env declaration + `validateEnv()` fail-fast seam (ENV tier of the config split)
 - `packages/{constants,types,validations,logger,timeout}` — shared libs
 
 ## Conventions

@@ -53,7 +53,7 @@ const updatePersonaFieldTool = createTool({
       })();
       if (!updated) return { success: false as const, error: 'Persona not found' };
 
-      const { score, breakdown, nextSuggestions } = calculateCompleteness(updated);
+      const { score, breakdown, nextSuggestions } = await calculateCompleteness(updated);
       await db
         .update(personas)
         .set({ completenessScore: score })
@@ -87,7 +87,7 @@ const getCompletenessTool = createTool({
       if (!persona || String(persona.userId) !== principal.userId) {
         return { error: 'Persona not found' };
       }
-      const { score, breakdown, nextSuggestions } = calculateCompleteness(persona);
+      const { score, breakdown, nextSuggestions } = await calculateCompleteness(persona);
       return { score, breakdown, nextSuggestions };
     }),
 });

@@ -30,6 +30,9 @@ playwright-report/
 # drizzle local
 packages/db/.env.local
 
+# graphify knowledge-graph outputs (generated; rebuilt locally + via git hook)
+graphify-out/
+
 # os / editor
 .DS_Store
 *.log
