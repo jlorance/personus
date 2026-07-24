@@ -36,6 +36,7 @@ from graphify.wiki import to_wiki
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "graphify-out"
 SEMANTIC = ROOT / ".graphify" / "docs-semantic.json"
+CODE_SEMANTIC = ROOT / ".graphify" / "code-semantic.json"
 CODE_ROOTS = ["packages", "apps"]
 CODE_EXCLUDE = ("node_modules/", "/.next/", "/dist/", "/.turbo/")
 
@@ -84,20 +85,38 @@ def auto_labels(graph, communities: dict) -> dict:
     return labels
 
 
+def load_code_semantic() -> dict:
+    """Optional LLM code extraction — call-intent / pattern / code→spec edges AST can't see."""
+    if not CODE_SEMANTIC.exists():
+        return {"nodes": [], "edges": [], "hyperedges": []}
+    cs = json.loads(CODE_SEMANTIC.read_text())
+    print(f"code-semantic: {len(cs['nodes'])} nodes, {len(cs['edges'])} edges")
+    return cs
+
+
 def main() -> None:
     sem = load_semantic()
     ast = code_ast()
+    csem = load_code_semantic()
 
+    # AST first (defines code node ids), then code-semantic + doc-semantic nodes.
     seen = {n["id"] for n in ast["nodes"]}
     nodes = list(ast["nodes"])
-    for n in sem["nodes"]:
-        if n["id"] not in seen:
-            nodes.append(n)
-            seen.add(n["id"])
+    for extra in (csem["nodes"], sem["nodes"]):
+        for n in extra:
+            if n["id"] not in seen:
+                nodes.append(n)
+                seen.add(n["id"])
+    # Keep only edges whose endpoints exist (code→spec bridges resolve here).
+    ids = {n["id"] for n in nodes}
+    edges = [
+        e for e in (ast["edges"] + csem["edges"] + sem["edges"])
+        if e.get("source") in ids and e.get("target") in ids
+    ]
     extraction = {
         "nodes": nodes,
-        "edges": ast["edges"] + sem["edges"],
-        "hyperedges": sem.get("hyperedges", []),
+        "edges": edges,
+        "hyperedges": sem.get("hyperedges", []) + csem.get("hyperedges", []),
         "input_tokens": 0,
         "output_tokens": 0,
     }
