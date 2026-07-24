@@ -18,6 +18,7 @@
     "test:coverage": "vitest run --coverage --config vitest.coverage.config.ts",
     "test:load": "artillery run test/artillery/smoke.yml",
     "docs:validate": "bun scripts/docs/validate.mjs",
+    "graph:build": "python3 scripts/graph/build-graph.py",
     "db:generate": "bun run --cwd packages/db db:generate",
     "db:migrate": "bun run --cwd packages/db db:migrate",
     "db:push": "bun run --cwd packages/db db:push",
