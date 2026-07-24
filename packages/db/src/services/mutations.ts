@@ -16,7 +16,7 @@ import {
   personas,
   shadowPersonas,
 } from '../schema';
-import { endorsementTargetValid } from './gates';
+import { canViewPersona, endorsementTargetValid, type Viewer } from './gates';
 import {
   ForbiddenError,
   NotFoundError,
@@ -47,13 +47,21 @@ export async function createContactRequest(
     if (!owned || !owns(owned, principal)) throw new ForbiddenError();
   }
 
-  // The target persona must exist and be live.
+  // The target persona must exist, be live, AND be visible to the caller —
+  // otherwise a "created" vs NotFoundError response oracles private-persona
+  // existence by URI. A hidden target returns the same 404 as a missing one.
   const [target] = await db
-    .select({ id: personas.id })
+    .select({ id: personas.id, visibility: personas.visibility, userId: personas.userId })
     .from(personas)
     .where(and(eq(personas.uri, input.toPersonaUri), isNull(personas.deletedAt)))
     .limit(1);
-  if (!target) throw new NotFoundError('Target persona not found');
+  const viewer: Viewer = { userId: principal.userId, networkDepth: 2 };
+  if (
+    !target ||
+    !canViewPersona(viewer, { visibility: target.visibility, ownerUserId: String(target.userId) })
+  ) {
+    throw new NotFoundError('Target persona not found');
+  }
 
   const [row] = await db
     .insert(contactRequests)
@@ -89,6 +97,20 @@ export async function createShadowPersona(
     .where(and(eq(personas.uri, input.createdByPersonaUri), isNull(personas.deletedAt)))
     .limit(1);
   if (!owned || !owns(owned, principal)) throw new ForbiddenError();
+
+  // The caller must belong to the target community — otherwise any user could
+  // inject shadow personas into communities they've never joined.
+  const [membership] = await db
+    .select({ role: communityMembers.role })
+    .from(communityMembers)
+    .where(
+      and(
+        eq(communityMembers.communityId, toBigId(input.communityId)),
+        eq(communityMembers.userId, BigInt(principal.userId)),
+      ),
+    )
+    .limit(1);
+  if (!membership) throw new ForbiddenError();
 
   const claimToken = `clm_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
   const [row] = await db
@@ -134,6 +156,23 @@ export async function createEndorsement(
     .where(and(eq(personas.uri, input.fromPersonaUri), isNull(personas.deletedAt)))
     .limit(1);
   if (!owned || !owns(owned, principal)) throw new ForbiddenError();
+
+  // If the endorsement targets a real persona, it must be visible to the caller
+  // — don't let an insert success/failure oracle a private persona's existence.
+  if (input.toPersonaUri) {
+    const [tgt] = await db
+      .select({ visibility: personas.visibility, userId: personas.userId })
+      .from(personas)
+      .where(and(eq(personas.uri, input.toPersonaUri), isNull(personas.deletedAt)))
+      .limit(1);
+    const viewer: Viewer = { userId: principal.userId, networkDepth: 2 };
+    if (
+      !tgt ||
+      !canViewPersona(viewer, { visibility: tgt.visibility, ownerUserId: String(tgt.userId) })
+    ) {
+      throw new NotFoundError('Target persona not found');
+    }
+  }
 
   const [row] = await db
     .insert(endorsements)

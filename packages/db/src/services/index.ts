@@ -68,14 +68,40 @@ export function owns(row: { userId: bigint }, principal: ServicePrincipal): bool
 // ─── Persona mutations (Coach-facing) ─────────────────────────────────────────
 
 /**
+ * Columns `updatePersona` is allowed to write. Deliberately EXCLUDES `userId`
+ * (ownership), `embedding` (gated by `updatePersonaEmbedding`), `traits` (gated
+ * by `updatePersonaTraits`), `uri`, and all id/audit/tombstone columns — so a
+ * patch can never reassign ownership or bypass a dedicated gate.
+ */
+export const EDITABLE_PERSONA_FIELDS = [
+  'displayName',
+  'initial',
+  'headline',
+  'location',
+  'entityType',
+  'visibility',
+  'contactPreferences',
+  'completenessScore',
+  'layoutPreset',
+  'theme',
+  'mcpEnabled',
+  'mcpTraitVisibility',
+] as const;
+
+export type EditablePersonaPatch = Partial<
+  Pick<typeof personas.$inferInsert, (typeof EDITABLE_PERSONA_FIELDS)[number]>
+>;
+
+/**
  * Patch base-layer persona fields (headline, location, displayName, …).
- * Enforces CASL `update Persona` + ownership (principal.userId === persona.userId).
+ * Enforces CASL `update Persona` + ownership (principal.userId === persona.userId),
+ * and only writes allowlisted columns (see EDITABLE_PERSONA_FIELDS).
  * Returns null if the persona doesn't exist.
  */
 export async function updatePersona(
   principal: ServicePrincipal,
   uri: string,
-  patch: Partial<typeof personas.$inferInsert>,
+  patch: EditablePersonaPatch,
 ): Promise<typeof personas.$inferSelect | null> {
   if (!principal.ability.can('update', 'Persona')) throw new ForbiddenError();
 
@@ -87,9 +113,17 @@ export async function updatePersona(
   if (!existing) return null;
   if (!owns(existing, principal)) throw new ForbiddenError();
 
+  // Defense-in-depth: only ever write allowlisted columns, even if a caller
+  // (or the model-driven coach tool, whose `field` is a free string) supplies
+  // `userId`/`embedding`/`deletedAt`/ids — those must never be mass-assignable.
+  const safe: EditablePersonaPatch = {};
+  for (const key of EDITABLE_PERSONA_FIELDS) {
+    if (key in patch) (safe as Record<string, unknown>)[key] = patch[key];
+  }
+
   const [updated] = await db
     .update(personas)
-    .set({ ...patch, updatedBy: principalTag(principal), updatedAt: new Date() })
+    .set({ ...safe, updatedBy: principalTag(principal), updatedAt: new Date() })
     .where(eq(personas.id, existing.id))
     .returning();
   return updated ?? null;

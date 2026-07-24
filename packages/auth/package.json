@@ -9,7 +9,8 @@
     "./system": "./src/system.ts"
   },
   "scripts": {
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.37.3",

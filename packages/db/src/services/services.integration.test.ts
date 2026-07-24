@@ -199,6 +199,27 @@ describe.skipIf(!hasTestDb)('service layer (integration)', () => {
       );
       await expect(deletePersona(other, p.uri)).rejects.toBeInstanceOf(ForbiddenError);
     });
+
+    it('updatePersona cannot mass-assign ownership or protected columns', async () => {
+      const owner = await makeUser(7);
+      const attacker = await makeUser(8);
+      const p = await createPersona(owner, { displayName: 'Protected' });
+
+      // Simulate a caller (e.g. the coach's free-string `field`) trying to smuggle
+      // protected columns through the patch. They must be dropped by the allowlist.
+      const malicious = {
+        headline: 'ok',
+        userId: BigInt(attacker.userId as string),
+        deletedAt: new Date(),
+      } as unknown as Parameters<typeof updatePersona>[2];
+      const updated = await updatePersona(owner, p.uri, malicious);
+
+      expect(updated?.headline).toBe('ok'); // allowlisted field applied
+      expect(String(updated?.userId)).toBe(owner.userId); // ownership NOT reassigned
+      expect(updated?.deletedAt).toBeNull(); // not soft-deleted
+      expect(await listMyPersonas(owner)).toHaveLength(1); // still the owner's
+      expect(await listMyPersonas(attacker)).toHaveLength(0); // never became attacker's
+    });
   });
 
   describe('communities', () => {
@@ -295,9 +316,40 @@ describe.skipIf(!hasTestDb)('service layer (integration)', () => {
       // second retract is a no-op (already deleted)
       expect(await retractEndorsement(founder, end.publicId)).toBe(false);
     });
+
+    it('rejects a shadow persona injected into a community the caller has not joined', async () => {
+      const founder = await makeUser(24);
+      const fp = await createPersona(founder, { displayName: 'Guild Owner 2' });
+      const community = await createCommunity(founder, {
+        name: 'Closed Guild',
+        foundingPersonaUri: fp.uri,
+      });
+
+      const outsider = await makeUser(25);
+      const op = await createPersona(outsider, { displayName: 'Outsider' });
+      await expect(
+        createShadowPersona(outsider, {
+          communityId: String(community.id),
+          createdByPersonaUri: op.uri,
+          displayName: 'Rogue Shadow',
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
   });
 
   describe('contact requests', () => {
+    it('does not leak a private persona to a contact request (404, not created)', async () => {
+      const owner = await makeUser(90);
+      const stranger = await makeUser(91);
+      const priv = await createPersona(owner, { displayName: 'Hidden', visibility: 'private' });
+
+      // A stranger who cannot see the private persona gets the same 404 as a
+      // truly missing URI — no created-vs-notfound oracle for enumeration.
+      await expect(
+        createContactRequest(stranger, { toPersonaUri: priv.uri, reason: 'probe' }),
+      ).rejects.toBeInstanceOf(NotFoundError);
+    });
+
     it('routes a request to the recipient inbox and lets only them respond', async () => {
       const sender = await makeUser(30);
       const recipient = await makeUser(31);
