@@ -32,7 +32,6 @@ describe('CASL abilities', () => {
   it('grants community admins management of their community only', () => {
     const a = defineAbilitiesFor({
       userId: '1',
-      personaUris: ['per_x'],
       communityIds: ['10'],
       communityRoles: { '10': 'admin' },
       role: 'user',

@@ -40,7 +40,10 @@ export type EndorsementStrength = (typeof ENDORSEMENT_STRENGTHS)[number];
 export const CONTACT_REQUEST_STATUSES = ['pending', 'approved', 'declined'] as const;
 export type ContactRequestStatus = (typeof CONTACT_REQUEST_STATUSES)[number];
 
-export const COMMUNITY_MEMBER_ROLES = ['member', 'steward', 'admin'] as const;
+// 'steward' was declared but never assigned, gated, or tested — removed to avoid
+// implying a permission tier that doesn't exist. Re-add with a real CASL rule +
+// DB constraint when a steward role is actually designed.
+export const COMMUNITY_MEMBER_ROLES = ['member', 'admin'] as const;
 export type CommunityMemberRole = (typeof COMMUNITY_MEMBER_ROLES)[number];
 
 export const JOIN_POLICIES = ['open', 'approval', 'invite_only'] as const;

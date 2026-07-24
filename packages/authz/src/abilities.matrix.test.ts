@@ -16,7 +16,6 @@ import { type Actions, buildNarrowAbility, defineAbilitiesFor, type Subjects } f
 // ── Principal profiles ─────────────────────────────────────────────────────────
 const ctx = (over = {}) => ({
   userId: '1',
-  personaUris: [],
   communityIds: [],
   communityRoles: {},
   role: 'user' as const,
@@ -38,6 +37,8 @@ const PROFILES = {
 
 type ProfileName = keyof typeof PROFILES;
 const ALL: ProfileName[] = Object.keys(PROFILES) as ProfileName[];
+/** Every authenticated user profile (excludes anon reader + embeddings worker). */
+const AUTHED: ProfileName[] = ['user', 'member', 'communityAdmin', 'admin'];
 
 // ── The grid: [action, subject, profiles allowed] ──────────────────────────────
 // Anything not listed for a row is asserted DENIED for that profile.
@@ -82,6 +83,53 @@ const MATRIX: Array<[Actions, Subjects, ProfileName[]]> = [
   // Communities — read by anyone signed-in (+ anon reader); create by any user.
   ['read', 'Community', ['anonReader', 'user', 'member', 'communityAdmin', 'admin']],
   ['create', 'Community', ['user', 'member', 'communityAdmin', 'admin']],
+
+  // ── Previously-uncovered subjects (close the systematic gap) ──────────────────
+  // Self-scoped user data — every authenticated user; not anon/worker.
+  ['read', 'UserTraits', AUTHED],
+  ['update', 'UserTraits', AUTHED],
+  ['read', 'CoachSession', AUTHED],
+  ['create', 'CoachSession', AUTHED],
+  ['read', 'ShadowPersona', AUTHED],
+  ['create', 'ShadowPersona', AUTHED],
+  ['read', 'ContactRequest', AUTHED],
+  ['create', 'ContactRequest', AUTHED],
+  ['update', 'ContactRequest', AUTHED],
+  ['read', 'ActivityEvent', AUTHED],
+  ['create', 'ActivityEvent', AUTHED],
+  // Guild sub-area — read by members; managed only by the community admin.
+  ['read', 'GuildRequest', AUTHED],
+  ['manage', 'GuildRequest', ['communityAdmin']],
+  // purge on platform-wide subjects — ONLY the platform admin.
+  ...(
+    [
+      'User',
+      'UserTraits',
+      'CoachSession',
+      'ShadowPersona',
+      'ContactRequest',
+      'Community',
+      'ActivityEvent',
+      'TraitMetadata',
+      'TraitTaxonomy',
+      'CommunityType',
+    ] as Subjects[]
+  ).map((s): [Actions, Subjects, ProfileName[]] => ['purge', s, ['admin']]),
+  // purge on COMMUNITY-scoped subjects — platform admin AND the community admin,
+  // because a community admin's `manage <X>` grant is a CASL wildcard that
+  // INCLUDES purge. NOTE: this contradicts the "purge = admin/system only"
+  // comment in abilities.ts — flagged for product review (community-admin
+  // hard-delete of memberships/guild data/channels). Asserted here as the true
+  // current behavior so a change is a conscious one.
+  ...(
+    [
+      'Membership',
+      'GuildTaxonomy',
+      'GuildOffering',
+      'GuildRequest',
+      'PlatformChannel',
+    ] as Subjects[]
+  ).map((s): [Actions, Subjects, ProfileName[]] => ['purge', s, ['communityAdmin', 'admin']]),
 ];
 
 describe('authorization matrix (action × subject × principal)', () => {

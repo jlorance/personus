@@ -78,6 +78,12 @@ export class HeadroomProvider implements CompressionProvider {
     }
   }
 
+  /**
+   * Reverse a CCR ref. Unlike `compress`, this does NOT fail open — a failed
+   * retrieval means the original is unrecoverable, so it THROWS (network error,
+   * timeout, or a non-string body). Callers in a request path must catch it and
+   * degrade explicitly rather than serve a broken/compressed value.
+   */
   async retrieve(ref: string): Promise<string> {
     const res = await fetch(`${this.#baseUrl}/retrieve`, {
       method: 'POST',

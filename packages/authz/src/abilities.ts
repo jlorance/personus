@@ -11,8 +11,8 @@
 
 import { AbilityBuilder, createMongoAbility, type PureAbility } from '@casl/ability';
 import { db } from '@personus/db';
-import { and, eq, isNull } from '@personus/db/orm';
-import { communityMembers, personas } from '@personus/db/schema';
+import { eq } from '@personus/db/orm';
+import { communityMembers } from '@personus/db/schema';
 
 export type Subjects =
   | 'User'
@@ -47,7 +47,6 @@ export type AppAbility = PureAbility<[Actions, Subjects]>;
 
 export interface AbilityContext {
   userId: string;
-  personaUris: string[];
   communityIds: string[];
   communityRoles: Record<string, string>;
   role: Role;
@@ -170,7 +169,6 @@ export function parseRole(raw: unknown): Role {
 export function defineAbilitiesForRole(role: Role): AppAbility {
   return defineAbilitiesFor({
     userId: '',
-    personaUris: [],
     communityIds: [],
     communityRoles: {},
     role,
@@ -184,11 +182,6 @@ export async function buildAbilityContext(
 ): Promise<AbilityContext> {
   const userIdBig = BigInt(userId);
 
-  const userPersonas = await db
-    .select({ uri: personas.uri })
-    .from(personas)
-    .where(and(eq(personas.userId, userIdBig), isNull(personas.deletedAt)));
-
   const memberships = await db
     .select({ communityId: communityMembers.communityId, role: communityMembers.role })
     .from(communityMembers)
@@ -201,11 +194,5 @@ export async function buildAbilityContext(
     if (!communityRoles[cid] || m.role === 'admin') communityRoles[cid] = m.role;
   }
 
-  return {
-    userId,
-    personaUris: userPersonas.map((p) => p.uri),
-    communityIds,
-    communityRoles,
-    role,
-  };
+  return { userId, communityIds, communityRoles, role };
 }

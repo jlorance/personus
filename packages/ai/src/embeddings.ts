@@ -10,6 +10,7 @@
 
 import { openai } from '@ai-sdk/openai';
 import { getSetting } from '@personus/db/settings';
+import { env } from '@personus/env';
 import { logger } from '@personus/logger';
 import { TIMEOUTS, withTimeout } from '@personus/timeout';
 import { embed } from 'ai';
@@ -46,7 +47,7 @@ export function personaEmbeddingText(p: PersonaLike): string {
 
 /** Embed arbitrary text. Returns null when embeddings are unavailable (fail soft). */
 export async function embedText(text: string): Promise<number[] | null> {
-  if (!process.env.OPENAI_API_KEY || !text.trim()) return null;
+  if (!env.OPENAI_API_KEY || !text.trim()) return null;
   const model = await getSetting('ai.embedding_model', 'text-embedding-3-small');
   try {
     const { embedding } = await withTimeout(

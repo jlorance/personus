@@ -17,6 +17,7 @@
     "@mastra/core": "1.51.0",
     "@personus/auth": "workspace:*",
     "@personus/db": "workspace:*",
+    "@personus/env": "workspace:*",
     "@personus/logger": "workspace:*",
     "@personus/timeout": "workspace:*",
     "zod": "^3.24.1",

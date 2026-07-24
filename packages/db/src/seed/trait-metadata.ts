@@ -6,8 +6,8 @@
  * direction traits the Persona Coach collects; extend per UI as it lands.
  */
 
-import { eq } from 'drizzle-orm';
 import { db } from '../index';
+import { eq } from '../orm';
 import { traitMetadata } from '../schema';
 
 interface TraitMetaSeed {

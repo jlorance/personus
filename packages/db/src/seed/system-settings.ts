@@ -9,8 +9,8 @@
  * metadata only and PRESERVE any admin-overridden `value`.
  */
 
-import { eq } from 'drizzle-orm';
 import { db } from '../index';
+import { eq } from '../orm';
 import { systemSettings } from '../schema';
 
 export type SettingDef =

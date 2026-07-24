@@ -208,7 +208,8 @@ export async function listCommunities(
       .innerJoin(communityMembers, eq(communityMembers.communityId, communities.id))
       .where(
         and(eq(communityMembers.userId, BigInt(principal.userId)), isNull(communities.deletedAt)),
-      );
+      )
+      .limit(MAX_COMMUNITY_LIST); // cap the authenticated branch too — no unbounded result
   }
 
   return db
