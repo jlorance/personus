@@ -20,11 +20,19 @@ describe('canViewPersona', () => {
   it('public is visible to anyone', () => {
     expect(canViewPersona(anon, { visibility: 'public', ownerUserId: '1' })).toBe(true);
   });
-  it('authenticated/community need networkDepth ≥ 2', () => {
+  it('authenticated needs networkDepth ≥ 2', () => {
     expect(canViewPersona(anon, { visibility: 'authenticated', ownerUserId: '1' })).toBe(false);
-    expect(canViewPersona(anon, { visibility: 'community', ownerUserId: '1' })).toBe(false);
     expect(canViewPersona(user, { visibility: 'authenticated', ownerUserId: '1' })).toBe(true);
-    expect(canViewPersona(user, { visibility: 'community', ownerUserId: '1' })).toBe(true);
+  });
+  it('community requires sharing a community with the persona (persona-scoped)', () => {
+    const p = { visibility: 'community', ownerUserId: '1' };
+    // anonymous → no
+    expect(canViewPersona(anon, p)).toBe(false);
+    // authenticated but shares NO community with this persona → no (not just "any signed-in user")
+    expect(canViewPersona(user, p)).toBe(false);
+    expect(canViewPersona(user, p, false)).toBe(false);
+    // authenticated AND shares a community the persona belongs to → yes
+    expect(canViewPersona(user, p, true)).toBe(true);
   });
   it('private is hidden from non-owners', () => {
     expect(canViewPersona(user, { visibility: 'private', ownerUserId: '1' })).toBe(false);

@@ -25,14 +25,24 @@ export type Visibility = 'public' | 'authenticated' | 'community' | 'private';
 export function canViewPersona(
   viewer: Viewer,
   persona: { visibility: string; ownerUserId: string | null },
+  /**
+   * Whether the viewer belongs to a community THIS PERSONA is a member of
+   * (persona-scoped, via community_members — NOT the owner's other communities).
+   * The service computes it; the pure gate just applies it.
+   */
+  sharesCommunity = false,
 ): boolean {
   if (persona.ownerUserId != null && persona.ownerUserId === viewer.userId) return true;
   switch (persona.visibility) {
     case 'public':
       return true;
     case 'authenticated':
-    case 'community':
       return viewer.networkDepth >= 2;
+    // 'community' → only members of a community this persona belongs to. This is
+    // what preserves faceting: a member of the persona's guild sees it; an
+    // authenticated user who shares no community with the persona does not.
+    case 'community':
+      return viewer.networkDepth >= 2 && sharesCommunity;
     default:
       return false;
   }

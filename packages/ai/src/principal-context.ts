@@ -17,7 +17,7 @@ export type PersonusRequestContextShape = { [PRINCIPAL_CTX_KEY]: Principal };
 /** Build a RequestContext delegating a user's authority to an agent run. */
 export function buildAgentRequestContext(
   base: Principal,
-  agent: { agentId: string; sessionId: string; constraints?: Record<string, unknown> },
+  agent: Parameters<typeof asAgent>[1],
 ): RequestContext<PersonusRequestContextShape> {
   const delegated = asAgent(base, agent);
   return new RequestContext<PersonusRequestContextShape>([[PRINCIPAL_CTX_KEY, delegated]]);

@@ -89,9 +89,13 @@ export async function handlePlatformMessage(
   }
 
   const principal = getPlatformPrincipal(msg.platform, msg.senderRef);
+  // Strip the fence delimiters from untrusted input so a sender can't close the
+  // data fence early and inject instructions (the LLM's "treat as data" rule is
+  // a soft guard; this removes the technical escape).
+  const fenced = msg.text.replace(/<<<\/?USER_MESSAGE>>>/g, '');
   try {
     const result = await withTimeout(
-      discoveryAgent.generate(`<<<USER_MESSAGE>>>${msg.text}<<</USER_MESSAGE>>>`, {
+      discoveryAgent.generate(`<<<USER_MESSAGE>>>${fenced}<<</USER_MESSAGE>>>`, {
         requestContext: contextWithPrincipal(principal),
       }),
       TIMEOUTS.llm,

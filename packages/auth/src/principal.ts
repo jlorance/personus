@@ -4,13 +4,16 @@
  * SDK directly), then builds the CASL ability from @personus/authz.
  */
 
+import { createHash } from 'node:crypto';
 import {
+  type Actions,
   type AppAbility,
   buildAbilityContext,
   buildNarrowAbility,
   defineAbilitiesFor,
   parseRole,
   type Role,
+  type Subjects,
 } from '@personus/authz';
 import { db } from '@personus/db';
 import { eq } from '@personus/db/orm';
@@ -36,7 +39,6 @@ export interface Principal {
     agentId: string;
     sessionId: string;
     grantedAt: Date;
-    constraints?: Record<string, unknown>;
   };
   mcpClient?: { clientId: string; tier: 'anonymous' | 'authenticated'; tokenIssuedAt: Date };
 }
@@ -125,10 +127,18 @@ export function getSystemPrincipal(actor: SystemActorDef): Principal {
   };
 }
 
-/** Narrow a user Principal for an AI agent acting on their behalf. */
+/**
+ * Narrow a user Principal for an AI agent acting on their behalf.
+ *
+ * If `allow` is given, the agent's ability is REPLACED with exactly those
+ * (action, subject) grants — a real capability reduction that gates enforce.
+ * If omitted, the agent inherits the user's full ability (backward-compatible
+ * default). This is a coarse action/subject narrowing; row-level scoping (e.g.
+ * "only these persona URIs") is a service-layer concern, not expressible here.
+ */
 export function asAgent(
   base: Principal,
-  agent: { agentId: string; sessionId: string; constraints?: Record<string, unknown> },
+  agent: { agentId: string; sessionId: string; allow?: ReadonlyArray<[Actions, Subjects]> },
 ): Principal {
   if (base.actorType !== 'user') throw new Error('asAgent() requires a user Principal as base');
   return {
@@ -136,22 +146,29 @@ export function asAgent(
     actorId: `agent:${agent.agentId}`,
     actorType: 'agent',
     networkDepth: 2,
+    ability: agent.allow ? buildNarrowAbility(agent.allow) : base.ability,
     delegatedAuthority: {
       agentId: agent.agentId,
       sessionId: agent.sessionId,
       grantedAt: new Date(),
-      constraints: agent.constraints,
     },
   };
+}
+
+/**
+ * One-way audit id from a raw identifier (client IP, platform user id). Must be
+ * a HASH, not reversible encoding — audit_log readers must not be able to
+ * reconstruct the source PII (a prior btoa/base64 version was recoverable).
+ */
+function actorHash(raw: string): string {
+  return createHash('sha256').update(raw).digest('hex').slice(0, 16);
 }
 
 /** Narrow anonymous Principal for unauthenticated MCP callers (public read only). */
 export function getAnonymousMcpPrincipal(req: Request): Principal {
   const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
   const ua = req.headers.get('user-agent') ?? 'unknown';
-  const clientHash = btoa(`${clientIp}:${ua.slice(0, 32)}`)
-    .replace(/[^a-zA-Z0-9]/g, '')
-    .slice(0, 16);
+  const clientHash = actorHash(`${clientIp}:${ua.slice(0, 32)}`);
   return {
     actorId: `mcp-anonymous:${clientHash}`,
     actorType: 'mcp-anonymous',
@@ -177,9 +194,7 @@ export function getAnonymousMcpPrincipal(req: Request): Principal {
  * into the actorId for audit traceability without storing PII.
  */
 export function getPlatformPrincipal(platform: string, senderRef: string): Principal {
-  const hash = btoa(`${platform}:${senderRef}`)
-    .replace(/[^a-zA-Z0-9]/g, '')
-    .slice(0, 16);
+  const hash = actorHash(`${platform}:${senderRef}`);
   return {
     actorId: `platform:${platform}:${hash}`,
     // A platform bot is an anonymous external actor with no base user — its own

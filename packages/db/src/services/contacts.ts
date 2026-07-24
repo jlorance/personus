@@ -105,7 +105,10 @@ export async function respondToContact(
       updatedBy: `user:${principal.userId}`,
       updatedAt: new Date(),
     })
-    .where(eq(contactRequests.id, req.id))
+    // Guard status in the WHERE too: two concurrent responders both read
+    // 'pending', but only the first UPDATE matches — the second gets an empty
+    // .returning() and correctly surfaces "already resolved".
+    .where(and(eq(contactRequests.id, req.id), eq(contactRequests.status, 'pending')))
     .returning();
   if (!updated) throw new NotFoundError('Contact request already resolved');
 

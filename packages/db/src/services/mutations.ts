@@ -16,11 +16,12 @@ import {
   personas,
   shadowPersonas,
 } from '../schema';
-import { endorsementTargetValid } from './gates';
+import { canViewPersona, endorsementTargetValid, type Viewer } from './gates';
 import {
   ForbiddenError,
   NotFoundError,
   owns,
+  personaSharesCommunity,
   type ServicePrincipal,
   principalTag as tag,
   toBigId,
@@ -47,13 +48,29 @@ export async function createContactRequest(
     if (!owned || !owns(owned, principal)) throw new ForbiddenError();
   }
 
-  // The target persona must exist and be live.
+  // The target persona must exist, be live, AND be visible to the caller —
+  // otherwise a "created" vs NotFoundError response oracles private-persona
+  // existence by URI. A hidden target returns the same 404 as a missing one.
   const [target] = await db
-    .select({ id: personas.id })
+    .select({ id: personas.id, visibility: personas.visibility, userId: personas.userId })
     .from(personas)
     .where(and(eq(personas.uri, input.toPersonaUri), isNull(personas.deletedAt)))
     .limit(1);
-  if (!target) throw new NotFoundError('Target persona not found');
+  const viewer: Viewer = { userId: principal.userId, networkDepth: 2 };
+  const targetShares =
+    target?.visibility === 'community'
+      ? await personaSharesCommunity(target.id, principal.userId)
+      : false;
+  if (
+    !target ||
+    !canViewPersona(
+      viewer,
+      { visibility: target.visibility, ownerUserId: String(target.userId) },
+      targetShares,
+    )
+  ) {
+    throw new NotFoundError('Target persona not found');
+  }
 
   const [row] = await db
     .insert(contactRequests)
@@ -89,6 +106,20 @@ export async function createShadowPersona(
     .where(and(eq(personas.uri, input.createdByPersonaUri), isNull(personas.deletedAt)))
     .limit(1);
   if (!owned || !owns(owned, principal)) throw new ForbiddenError();
+
+  // The caller must belong to the target community — otherwise any user could
+  // inject shadow personas into communities they've never joined.
+  const [membership] = await db
+    .select({ role: communityMembers.role })
+    .from(communityMembers)
+    .where(
+      and(
+        eq(communityMembers.communityId, toBigId(input.communityId)),
+        eq(communityMembers.userId, BigInt(principal.userId)),
+      ),
+    )
+    .limit(1);
+  if (!membership) throw new ForbiddenError();
 
   const claimToken = `clm_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
   const [row] = await db
@@ -134,6 +165,12 @@ export async function createEndorsement(
     .where(and(eq(personas.uri, input.fromPersonaUri), isNull(personas.deletedAt)))
     .limit(1);
   if (!owned || !owns(owned, principal)) throw new ForbiddenError();
+
+  // NOTE: intentionally NO visibility gate on the endorsement TARGET. Endorsing
+  // is a real-world vouch — you may endorse a colleague whose persona is
+  // community-scoped to a community you're not in. WHO can see the endorsement is
+  // gated separately at read time (listEndorsementsForPersona / canViewEndorsement).
+  // A non-existent toPersonaUri is rejected by the FK constraint.
 
   const [row] = await db
     .insert(endorsements)
