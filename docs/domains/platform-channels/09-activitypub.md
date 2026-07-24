@@ -3,7 +3,7 @@ type: spec
 title: Platform Integrations — ActivityPub / Fediverse
 description: "ActivityPub is the W3C federation protocol that powers Mastodon, Lemmy, PeerTube, Pixelfed, and (partially) Threads. This spec documents what ActivityPub can do for Personus — and what it can't."
 status: planned
-tags: [integrations]
+tags: [platform-channels]
 timestamp: 2026-02-23
 ---
 

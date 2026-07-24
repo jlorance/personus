@@ -3,7 +3,7 @@ type: prd
 title: Platform Integrations — Overview Spec
 description: "Communities already live somewhere — a Discord server, a WhatsApp group, a Slack workspace, a creator's Instagram following. People in those communities have skills, experience, offerings, and…"
 status: current
-tags: [integrations]
+tags: [platform-channels]
 timestamp: 2026-02-23
 ---
 

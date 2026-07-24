@@ -3,7 +3,7 @@ type: spec
 title: Platform Integrations — Shared Architecture
 description: This spec contains everything that is platform-agnostic — the shared foundation that all platform integrations build on.
 status: current
-tags: [integrations]
+tags: [platform-channels]
 timestamp: 2026-02-23
 ---
 

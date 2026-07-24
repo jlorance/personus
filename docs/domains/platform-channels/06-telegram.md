@@ -3,7 +3,7 @@ type: spec
 title: Platform Integrations — Telegram
 description: "Telegram is a first-class integration platform for Personus alongside Discord, Slack, and Matrix. Its officially supported Bot API, Mini Apps (embedded web apps), and 900M+ user base make it one…"
 status: planned
-tags: [integrations]
+tags: [platform-channels]
 timestamp: 2026-02-23
 ---
 

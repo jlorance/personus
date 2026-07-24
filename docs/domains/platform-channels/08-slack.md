@@ -3,7 +3,7 @@ type: spec
 title: Platform Integrations — Slack
 description: "Slack is a first-class integration platform for Personus. Its official Bolt SDK, Block Kit interactive components, Events API, and dominance in professional/workplace communities make it essential…"
 status: planned
-tags: [integrations]
+tags: [platform-channels]
 timestamp: 2026-02-23
 ---
 

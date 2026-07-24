@@ -3,7 +3,7 @@ type: spec
 title: Platform Integrations — Matrix
 description: This spec covers everything specific to Matrix that builds on top of the shared architecture.
 status: planned
-tags: [integrations]
+tags: [platform-channels]
 timestamp: 2026-02-23
 ---
 

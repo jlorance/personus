@@ -147,7 +147,7 @@ When an agent is invoked inside a community context (e.g., a CX chat bar on a co
 
 Mastra 1.26 ships a `channels` primitive on the `Agent` constructor. We use it to expose existing Personus agents (likely `DiscoveryAgent` and a future `CommunityCoachAgent`) inside Discord, Slack, and Telegram. Webhooks are auto-generated at `/api/agents/{agentId}/channels/{platform}/webhook`. Channel message handlers resolve a Personus `Principal` (using the same `asAgent()` delegation contract as the MCP endpoint — see PER-6 / PER-17) before invoking tools, so visibility filtering and `networkDepth` apply identically to in-app, MCP, and channel-driven calls.
 
-Design and sequencing live in [`../specs/integrations/03-bot-architecture.md`](/domains/integrations/03-bot-architecture.md). Tracked as PER-64 (Discord), PER-65 (Slack), PER-66 (Telegram stub).
+Design and sequencing live in [`../specs/integrations/03-bot-architecture.md`](/domains/platform-channels/03-bot-architecture.md). Tracked as PER-64 (Discord), PER-65 (Slack), PER-66 (Telegram stub).
 
 ## Dormant agents
 
@@ -173,7 +173,7 @@ The pre-2026-04-14 version of this file (archived at [`_archive/agents.2026-04-1
 |---|---|---|
 | §Public Web Discovery (HTML, JSON-LD, SEO, sitemap, org pages) | ~378 | Already covered by [`../specs/personas/06-public-pages.md`](/domains/personas/06-public-pages.md) (1,255 lines) |
 | §MCP Tools (access tiers, 5 tool definitions, response format, rate limiting) | ~545 | Already covered by [`api-surface.md`](/foundation/api-surface.md) §MCP Tools |
-| §Workspace Integrations (Slack, Discord, admin dashboards) | ~433 | Already covered by [`../specs/integrations/08-slack.md`](/domains/integrations/08-slack.md), [`07-discord.md`](/domains/integrations/07-discord.md), [`01-shared-architecture.md`](/domains/integrations/01-shared-architecture.md) |
+| §Workspace Integrations (Slack, Discord, admin dashboards) | ~433 | Already covered by [`../specs/integrations/08-slack.md`](/domains/platform-channels/08-slack.md), [`07-discord.md`](/domains/platform-channels/07-discord.md), [`01-shared-architecture.md`](/domains/platform-channels/01-shared-architecture.md) |
 | §Community Coach (full conversational design) | ~82 | Compressed to the §Dormant agents section above. Full design moves to `docs/specs/coaches/` when authored. |
 | §Commerce Coach | ~27 | Compressed to §Dormant agents. Full design moves to `docs/specs/commerce/` when activated. |
 | §Cross-Agent Patterns | ~78 | Compressed to §Cross-agent patterns above |

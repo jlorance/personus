@@ -127,13 +127,24 @@ const STATUS_OVERRIDE = {
   'specs/sparks/00-prd.md': 'dormant',
 };
 
+// Domain folders renamed to match shipped-code concepts.
+const DOMAIN_RENAME = { integrations: 'platform-channels' };
+
+/** Map a legacy `specs/<area>/…` path to its ported `domains/<area>/…` path. */
+function specsToDomains(specsRel) {
+  const parts = specsRel.split('/');
+  parts[0] = 'domains';
+  if (parts[1] && DOMAIN_RENAME[parts[1]]) parts[1] = DOMAIN_RENAME[parts[1]];
+  return parts.join('/');
+}
+
 /** Map a legacy relative path to its ported relative path + concept type. */
 function route(srcRel) {
   const top = srcRel.split('/')[0];
 
   if (top === 'specs') {
     const rest = srcRel.slice('specs/'.length);
-    const dstRel = `domains/${rest}`;
+    const dstRel = specsToDomains(srcRel);
     const base = rest.split('/').pop();
     let type = 'spec';
     if (base === '00-prd.md' || base.endsWith('-prd.md')) type = 'prd';
@@ -269,11 +280,11 @@ function rewriteLinks(body, srcRel) {
       if (ARCHIVE[abs])
         t = `/${ARCHIVE[abs].dstRel}`; // link to a quarantined file
       else if (abs.includes('_archive/')) t = `/archive/legacy/${abs}`;
-      else if (abs.startsWith('specs/')) t = `/${abs.replace(/^specs\//, 'domains/')}`;
+      else if (abs.startsWith('specs/')) t = `/${specsToDomains(abs)}`;
       else if (TOP_DIRS.has(abs.split('/')[0])) t = `/${abs}`;
       // else: points outside the bundle (e.g. ../.claude/…) — leave as-is.
     } else if (isLocal && t.startsWith('/')) {
-      t = t.replace(/^\/specs\//, '/domains/');
+      t = t.replace(/^\/specs\/([^/]+)/, (_m, area) => `/domains/${DOMAIN_RENAME[area] ?? area}`);
     }
     return open + t + (anchor ?? '') + close;
   });

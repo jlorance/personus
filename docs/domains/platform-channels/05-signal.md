@@ -3,7 +3,7 @@ type: spec
 title: Platform Integrations — Signal
 description: "This spec documents Signal's integration landscape for Personus. Signal is intentionally link-only — we document what's technically possible, why it's risky, and why link-only is the right approach."
 status: planned
-tags: [integrations]
+tags: [platform-channels]
 timestamp: 2026-02-23
 ---
 

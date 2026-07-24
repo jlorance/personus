@@ -30,7 +30,7 @@ timestamp: 2026-04-14
 - **Sub-PRD:** [Guilds](/domains/communities/guilds-prd.md) — skill-centric communities with tiered membership, request routing, and offerings
 
 **Does not cover**
-- Per-platform integration mechanics → [Integrations PRD](/domains/integrations/00-prd.md)
+- Per-platform integration mechanics → [Integrations PRD](/domains/platform-channels/00-prd.md)
 - Endorsements, shadow personas, persona-level coach chat → [Personas PRD](/domains/personas/00-prd.md) + [Coaches PRD](../coaches/)
 - MCP tool implementation, semantic search ranking → [Discovery PRD](../discovery/)
 - Payment flows, monetized guild offerings → [Commerce PRD](/domains/commerce/00-prd.md) (dormant)

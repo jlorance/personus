@@ -134,7 +134,7 @@ Each surface applies its own rate limits (server actions: per-user Clerk-backed;
 | Server action authoring conventions | `apps/web/app/actions/` — read existing actions as the convention; no separate doc |
 | MCP access tier authorization | [`authorization.md`](/foundation/authorization.md) §Actors + this file §MCP tools |
 | Cost caps on LLM-touching calls | [`agents.md`](/foundation/agents.md) §Cost caps + CLAUDE.md `ai.cost_caps` |
-| External platform integrations (Slack, Discord, etc.) | [`../specs/integrations/00-prd.md`](/domains/integrations/00-prd.md) |
+| External platform integrations (Slack, Discord, etc.) | [`../specs/integrations/00-prd.md`](/domains/platform-channels/00-prd.md) |
 
 ## Displacement note
 

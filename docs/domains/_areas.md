@@ -112,10 +112,10 @@ timestamp: 2026-04-14
 
 **One-line scope:** Personus reaches users where they already are — via communication platforms (Slack, Discord, WhatsApp, Signal, Telegram, Matrix), social protocols (ActivityPub, AT Protocol), and web presence.
 
-**Status:** pre-library overview exists at [`integrations/00-prd.md`](/domains/integrations/00-prd.md) (~830 lines, substantively content-rich but not in frugal shape). 10 per-platform feature specs drafted; **zero integration code in the repo.**
+**Status:** pre-library overview exists at [`integrations/00-prd.md`](/domains/platform-channels/00-prd.md) (~830 lines, substantively content-rich but not in frugal shape). 10 per-platform feature specs drafted; **zero integration code in the repo.**
 
 **Seed material for frugal rewrite:**
-- [`integrations/00-prd.md`](/domains/integrations/00-prd.md) — existing overview (content-rich, shape-wrong)
+- [`integrations/00-prd.md`](/domains/platform-channels/00-prd.md) — existing overview (content-rich, shape-wrong)
 - [`../foundation/at-protocol.md`](/foundation/at-protocol.md) — AT Protocol integration design
 - [`../research/at_protocol_integration.md`](/research/at_protocol_integration.md), `matrix_protocol_integration.md`, `telegram_integration.md`, `whatsapp_integration.md`
 - Per-platform existing specs: `integrations/02-matrix.md` through `10-activity-tracking.md`

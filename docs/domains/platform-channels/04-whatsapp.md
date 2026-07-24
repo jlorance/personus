@@ -3,7 +3,7 @@ type: spec
 title: Platform Integrations — WhatsApp
 description: "WhatsApp is the most-used messaging platform globally (2B+ users), and WhatsApp Groups/Communities are how many real-world communities communicate — especially outside the US. But Meta's official…"
 status: planned
-tags: [integrations]
+tags: [platform-channels]
 timestamp: 2026-02-23
 ---
 

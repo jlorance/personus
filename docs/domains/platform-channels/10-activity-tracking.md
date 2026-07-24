@@ -3,7 +3,7 @@ type: spec
 title: Platform Integrations — Activity Tracking
 description: "Community Organizers need to see whether their platform integrations are delivering value. This spec defines a privacy-preserving activity tracking system — no conversation content, no individual…"
 status: planned
-tags: [integrations]
+tags: [platform-channels]
 timestamp: 2026-02-23
 ---
 

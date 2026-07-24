@@ -3,7 +3,7 @@ type: spec
 title: Platform Integrations — Bot Architecture
 description: "Mastra 1.26 ships a first-class channels primitive that subsumes ~60% of what Sections 4-8 of this spec describe: webhook routing, DM/mention/thread handling, deduplication, and per-thread memory.…"
 status: current
-tags: [integrations]
+tags: [platform-channels]
 timestamp: 2026-02-23
 ---
 

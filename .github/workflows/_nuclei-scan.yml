@@ -1,0 +1,114 @@
+name: nuclei scan (reusable)
+
+# Reusable DAST scan of a single live URL. Called by security-dast.yml.
+# Scans a running deployment (no repo checkout needed) and:
+#   - uploads results to the Security > Code scanning tab (SARIF; no-op without
+#     GitHub Advanced Security on private repos — the step is non-fatal),
+#   - attaches raw JSON/markdown findings as a build artifact,
+#   - writes a human-readable report to the job summary,
+#   - fails the job when findings at `fail-on` severities are present.
+
+on:
+  workflow_call:
+    inputs:
+      target:
+        description: "Target URL to scan"
+        required: true
+        type: string
+      flags:
+        description: "nuclei CLI flags (severity + curated template selection)"
+        required: false
+        type: string
+        # High-signal families for a Vercel-hosted Next.js app. Remove the
+        # `-tags ...` clause to run the full ruleset at these severities.
+        default: >-
+          -severity critical,high,medium
+          -tags cve,exposure,exposures,config,misconfig,misconfiguration,takeover,default-login,tech
+          -exclude-tags dos,fuzzing,intrusive
+          -rate-limit 80
+          -timeout 10
+          -retries 1
+          -stats
+      fail-on:
+        description: "Comma-separated severities that fail the job"
+        required: false
+        type: string
+        default: "critical,high"
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compute target slug
+        id: slug
+        env:
+          TARGET: ${{ inputs.target }}
+        run: |
+          slug=$(printf '%s' "$TARGET" | sed -E 's#^https?://##; s#[^A-Za-z0-9]+#-#g; s#-+$##')
+          echo "value=$slug" >> "$GITHUB_OUTPUT"
+
+      - name: Nuclei scan
+        id: nuclei
+        # Pin to a released SHA for supply-chain hygiene once you've chosen a version.
+        uses: projectdiscovery/nuclei-action@main
+        with:
+          target: ${{ inputs.target }}
+          flags: ${{ inputs.flags }}
+          sarif-export: nuclei.sarif
+          json-export: nuclei.json
+          markdown-export: nuclei.md
+
+      - name: Upload SARIF to code scanning
+        if: always() && hashFiles('nuclei.sarif') != ''
+        continue-on-error: true # no-op / permission error without GitHub Advanced Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: nuclei.sarif
+          category: nuclei-${{ steps.slug.outputs.value }}
+
+      - name: Upload raw findings artifact
+        if: always() && (hashFiles('nuclei.json') != '' || hashFiles('nuclei.md') != '')
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuclei-${{ steps.slug.outputs.value }}
+          path: |
+            nuclei.json
+            nuclei.md
+            nuclei.sarif
+          if-no-files-found: ignore
+
+      - name: Report + severity gate
+        if: always()
+        env:
+          TARGET: ${{ inputs.target }}
+          FAIL_ON: ${{ inputs.fail-on }}
+        run: |
+          echo "## Nuclei DAST — $TARGET" >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+
+          if [ ! -s nuclei.json ]; then
+            echo "No findings. :white_check_mark:" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if [ -s nuclei.md ]; then
+            cat nuclei.md >> "$GITHUB_STEP_SUMMARY"
+            echo >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          count=$(jq --arg fail "$FAIL_ON" \
+            '($fail | split(",")) as $sev | [ .[] | select(.info.severity as $s | $sev | index($s)) ] | length' \
+            nuclei.json)
+          echo "**Blocking findings ($FAIL_ON): $count**" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$count" -gt 0 ]; then
+            jq -r --arg fail "$FAIL_ON" \
+              '($fail | split(",")) as $sev | .[] | select(.info.severity as $s | $sev | index($s)) | "- [" + .info.severity + "] " + .info.name' \
+              nuclei.json
+            echo "::error::$count blocking nuclei finding(s) at severity: $FAIL_ON on $TARGET"
+            exit 1
+          fi

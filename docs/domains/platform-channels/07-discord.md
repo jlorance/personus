@@ -3,7 +3,7 @@ type: spec
 title: Platform Integrations — Discord
 description: "Discord is a first-class integration platform for Personus. Its official Bot API, slash commands, rich interactive components, and 200M+ MAU make it the dominant community platform in gaming,…"
 status: planned
-tags: [integrations]
+tags: [platform-channels]
 timestamp: 2026-02-23
 ---
 

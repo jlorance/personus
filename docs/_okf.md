@@ -53,7 +53,7 @@ supersedes: [/path/to/old.md]                                  # optional
 ## Layout
 
 - `foundation/` — cross-cutting canon (vision, principles, architecture, data-model, agents, auth, metrics…).
-- `domains/` — one directory per product area (`personas`, `communities`, `integrations`, `platform-ops`, `coaches`, `discovery`, `commerce`, `sparks`); PRDs, feature specs, schema specs.
+- `domains/` — one directory per product area (`personas`, `communities`, `platform-channels`, `platform-ops`, `coaches`, `discovery`, `commerce`, `sparks`); PRDs, feature specs, schema specs. `platform-channels` (the external-platform integration area) is named to match the shipped `platform_channel_bindings` concept.
 - `decisions/` — ADRs. `guides/` — how-to / methodology. `research/` — external landscape studies. `patterns/` — UX/design pattern studies. `business-model/` — pricing/growth/positioning.
 - `qa/` — QA convention stubs. `archive/` — quarantined stale / point-in-time material, preserved verbatim (`status: superseded`); links inside `archive/` are frozen and not link-checked.
 
