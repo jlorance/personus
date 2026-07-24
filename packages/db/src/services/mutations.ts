@@ -166,30 +166,11 @@ export async function createEndorsement(
     .limit(1);
   if (!owned || !owns(owned, principal)) throw new ForbiddenError();
 
-  // If the endorsement targets a real persona, it must be visible to the caller
-  // — don't let an insert success/failure oracle a private persona's existence.
-  if (input.toPersonaUri) {
-    const [tgt] = await db
-      .select({ id: personas.id, visibility: personas.visibility, userId: personas.userId })
-      .from(personas)
-      .where(and(eq(personas.uri, input.toPersonaUri), isNull(personas.deletedAt)))
-      .limit(1);
-    const viewer: Viewer = { userId: principal.userId, networkDepth: 2 };
-    const shares =
-      tgt?.visibility === 'community'
-        ? await personaSharesCommunity(tgt.id, principal.userId)
-        : false;
-    if (
-      !tgt ||
-      !canViewPersona(
-        viewer,
-        { visibility: tgt.visibility, ownerUserId: String(tgt.userId) },
-        shares,
-      )
-    ) {
-      throw new NotFoundError('Target persona not found');
-    }
-  }
+  // NOTE: intentionally NO visibility gate on the endorsement TARGET. Endorsing
+  // is a real-world vouch — you may endorse a colleague whose persona is
+  // community-scoped to a community you're not in. WHO can see the endorsement is
+  // gated separately at read time (listEndorsementsForPersona / canViewEndorsement).
+  // A non-existent toPersonaUri is rejected by the FK constraint.
 
   const [row] = await db
     .insert(endorsements)
