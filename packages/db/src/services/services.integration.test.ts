@@ -243,6 +243,26 @@ describe.skipIf(!hasTestDb)('service layer (integration)', () => {
       expect((await listCommunities(founder)).find((x) => x.slug === c.slug)?.memberCount).toBe(1);
     });
 
+    it("'community' persona is visible to co-members but not outsiders (persona-scoped)", async () => {
+      const owner = await makeUser(60);
+      const op = await createPersona(owner, { displayName: 'Guild Face', visibility: 'community' });
+      const c = await createCommunity(owner, { name: 'Facet Guild', foundingPersonaUri: op.uri });
+
+      const coMember = await makeUser(61);
+      const cp = await createPersona(coMember, { displayName: 'Co Member' });
+      await joinCommunity(coMember, c.slug, cp.uri);
+
+      const outsider = await makeUser(62); // authenticated, shares no community with op
+
+      // a member of the community this persona belongs to sees it…
+      expect(await getPersonaByUri(coMember, op.uri)).not.toBeNull();
+      // …but an authenticated user who shares NO community does not (not "any signed-in user")…
+      expect(await getPersonaByUri(outsider, op.uri)).toBeNull();
+      // …nor does an anonymous caller; the owner always sees their own.
+      expect(await getPersonaByUri(anon, op.uri)).toBeNull();
+      expect(await getPersonaByUri(owner, op.uri)).not.toBeNull();
+    });
+
     it('refuses self-service join to an approval-only community', async () => {
       const founder = await makeUser(12);
       const fp = await createPersona(founder, { displayName: 'Gated Guild' });

@@ -21,6 +21,7 @@ import {
   ForbiddenError,
   NotFoundError,
   owns,
+  personaSharesCommunity,
   type ServicePrincipal,
   principalTag as tag,
   toBigId,
@@ -56,9 +57,17 @@ export async function createContactRequest(
     .where(and(eq(personas.uri, input.toPersonaUri), isNull(personas.deletedAt)))
     .limit(1);
   const viewer: Viewer = { userId: principal.userId, networkDepth: 2 };
+  const targetShares =
+    target?.visibility === 'community'
+      ? await personaSharesCommunity(target.id, principal.userId)
+      : false;
   if (
     !target ||
-    !canViewPersona(viewer, { visibility: target.visibility, ownerUserId: String(target.userId) })
+    !canViewPersona(
+      viewer,
+      { visibility: target.visibility, ownerUserId: String(target.userId) },
+      targetShares,
+    )
   ) {
     throw new NotFoundError('Target persona not found');
   }
@@ -161,14 +170,22 @@ export async function createEndorsement(
   // — don't let an insert success/failure oracle a private persona's existence.
   if (input.toPersonaUri) {
     const [tgt] = await db
-      .select({ visibility: personas.visibility, userId: personas.userId })
+      .select({ id: personas.id, visibility: personas.visibility, userId: personas.userId })
       .from(personas)
       .where(and(eq(personas.uri, input.toPersonaUri), isNull(personas.deletedAt)))
       .limit(1);
     const viewer: Viewer = { userId: principal.userId, networkDepth: 2 };
+    const shares =
+      tgt?.visibility === 'community'
+        ? await personaSharesCommunity(tgt.id, principal.userId)
+        : false;
     if (
       !tgt ||
-      !canViewPersona(viewer, { visibility: tgt.visibility, ownerUserId: String(tgt.userId) })
+      !canViewPersona(
+        viewer,
+        { visibility: tgt.visibility, ownerUserId: String(tgt.userId) },
+        shares,
+      )
     ) {
       throw new NotFoundError('Target persona not found');
     }

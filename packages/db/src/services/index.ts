@@ -9,8 +9,8 @@
  */
 
 import { db } from '../index';
-import { and, type Column, eq, isNull } from '../orm';
-import { personas, userTraits } from '../schema';
+import { and, type Column, eq, inArray, isNull } from '../orm';
+import { communityMembers, personas, userTraits } from '../schema';
 
 // ─── Typed errors ─────────────────────────────────────────────────────────────
 
@@ -63,6 +63,35 @@ export function toBigId(value: string): bigint {
 /** True when `row.userId` (bigint) belongs to the principal. */
 export function owns(row: { userId: bigint }, principal: ServicePrincipal): boolean {
   return principal.userId != null && String(row.userId) === principal.userId;
+}
+
+/**
+ * Persona-scoped shared-community test behind `'community'` persona visibility:
+ * true when `viewerUserId` belongs to a community that persona `personaId` is
+ * ALSO a member of (via community_members). Persona-scoped, not owner-scoped —
+ * so a viewer only sees the facets (personas) presented into communities they
+ * share, never the owner's other personas.
+ */
+export async function personaSharesCommunity(
+  personaId: bigint,
+  viewerUserId: string | null,
+): Promise<boolean> {
+  if (!viewerUserId) return false;
+  const viewerCommunities = db
+    .select({ cid: communityMembers.communityId })
+    .from(communityMembers)
+    .where(eq(communityMembers.userId, BigInt(viewerUserId)));
+  const [hit] = await db
+    .select({ pid: communityMembers.personaId })
+    .from(communityMembers)
+    .where(
+      and(
+        eq(communityMembers.personaId, personaId),
+        inArray(communityMembers.communityId, viewerCommunities),
+      ),
+    )
+    .limit(1);
+  return Boolean(hit);
 }
 
 // ─── Persona mutations (Coach-facing) ─────────────────────────────────────────

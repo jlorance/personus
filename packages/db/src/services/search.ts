@@ -1,19 +1,31 @@
 /**
  * Persona discovery — the search behind the Discovery agent + MCP `personus_search`.
  *
- * Visibility-aware: an authenticated principal (networkDepth 2) sees
- * public/authenticated/community personas; an anonymous caller (depth 1) sees
- * only public ones. When the caller supplies a query embedding, results are
+ * Visibility-aware: an authenticated principal (networkDepth 2) sees public +
+ * authenticated personas, their own, and `community` personas they share a
+ * community with (persona-scoped, via community_members); an anonymous caller
+ * (depth 1) sees only public ones. When the caller supplies a query embedding,
  * ranked by pgvector cosine similarity over `personas.embedding` (ivfflat index);
  * otherwise it falls back to a text match over displayName/headline/traits.
  */
 
 import { DEFAULT_SEARCH_RESULTS, MAX_SEARCH_RESULTS } from '@personus/constants';
 import { db } from '../index';
-import { and, cosineDistance, eq, ilike, isNotNull, isNull, or, type SQL, sql } from '../orm';
-import { endorsements, personas } from '../schema';
+import {
+  and,
+  cosineDistance,
+  eq,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+  type SQL,
+  sql,
+} from '../orm';
+import { communityMembers, endorsements, personas } from '../schema';
 import { canViewPersona, type Viewer } from './gates';
-import { ForbiddenError, type ServicePrincipal } from './index';
+import { ForbiddenError, personaSharesCommunity, type ServicePrincipal } from './index';
 
 export interface PersonaSearchResult {
   uri: string;
@@ -39,13 +51,32 @@ export interface SearchOptions {
   requireMcpEnabled?: boolean;
 }
 
-/** Principal-aware visibility filter. depth 1 → public only; depth 2 → +authenticated/community. */
-function visibilityFilter(networkDepth: 1 | 2): SQL {
-  const visible =
-    networkDepth >= 2
-      ? sql`${personas.visibility} in ('public','authenticated','community')`
-      : sql`${personas.visibility} = 'public'`;
-  return visible;
+/**
+ * Principal-aware visibility filter.
+ *   depth 1 / anonymous → public only.
+ *   depth 2 authenticated → public + authenticated + own + `community` personas
+ *   the viewer shares a community with (persona-scoped, via community_members).
+ */
+function visibilityFilter(networkDepth: 1 | 2, viewerUserId: string | null): SQL {
+  if (networkDepth < 2 || !viewerUserId) {
+    return sql`${personas.visibility} = 'public'`;
+  }
+  const vid = BigInt(viewerUserId);
+  // Persona ids that are members of a community the viewer also belongs to.
+  const viewerCommunities = db
+    .select({ cid: communityMembers.communityId })
+    .from(communityMembers)
+    .where(eq(communityMembers.userId, vid));
+  const sharedPersonas = db
+    .select({ pid: communityMembers.personaId })
+    .from(communityMembers)
+    .where(inArray(communityMembers.communityId, viewerCommunities));
+  return or(
+    eq(personas.visibility, 'public'),
+    eq(personas.visibility, 'authenticated'),
+    eq(personas.userId, vid), // owner always sees their own
+    and(eq(personas.visibility, 'community'), inArray(personas.id, sharedPersonas)),
+  ) as SQL;
 }
 
 export async function searchPersonas(
@@ -85,7 +116,7 @@ export async function searchPersonas(
       .where(
         and(
           isNull(personas.deletedAt),
-          visibilityFilter(depth),
+          visibilityFilter(depth, principal.userId),
           isNotNull(personas.embedding),
           mcpFilter,
         ),
@@ -113,7 +144,14 @@ export async function searchPersonas(
       endorsementCount,
     })
     .from(personas)
-    .where(and(isNull(personas.deletedAt), visibilityFilter(depth), textMatch, mcpFilter))
+    .where(
+      and(
+        isNull(personas.deletedAt),
+        visibilityFilter(depth, principal.userId),
+        textMatch,
+        mcpFilter,
+      ),
+    )
     .orderBy(sql`${personas.completenessScore} desc nulls last`)
     .limit(limit);
 
@@ -172,7 +210,14 @@ export async function getPersonaByUri(
   if (requireMcpEnabled && row.mcpEnabled !== true) return null;
 
   const viewer: Viewer = { userId: principal.userId, networkDepth: principal.networkDepth ?? 1 };
-  return canViewPersona(viewer, { visibility: row.visibility, ownerUserId: String(row.userId) })
+  // Only pay for the membership lookup when the tier actually needs it.
+  const sharesCommunity =
+    row.visibility === 'community' ? await personaSharesCommunity(row.id, principal.userId) : false;
+  return canViewPersona(
+    viewer,
+    { visibility: row.visibility, ownerUserId: String(row.userId) },
+    sharesCommunity,
+  )
     ? row
     : null;
 }
