@@ -5,10 +5,10 @@
 
 import { db } from '../index';
 import { and, eq, isNull } from '../orm';
-import { personas } from '../schema';
+import { contactRequests, personas } from '../schema';
 import { publicId } from '../schema/_factory';
 import { slugifyName, toPersonaSummary } from './gates';
-import { ForbiddenError, owns, type ServicePrincipal } from './index';
+import { ForbiddenError, owns, principalTag, type ServicePrincipal } from './index';
 
 /** Create a persona owned by the principal. Ensures a unique `uri`. */
 export async function createPersona(
@@ -87,9 +87,20 @@ export async function deletePersona(principal: ServicePrincipal, uri: string): P
     .limit(1);
   if (!existing) return false;
   if (!owns(existing, principal)) throw new ForbiddenError();
+
+  const now = new Date();
+  const tag = principalTag(principal);
   await db
     .update(personas)
-    .set({ deletedAt: new Date(), updatedBy: `user:${principal.userId}`, updatedAt: new Date() })
+    .set({ deletedAt: now, updatedBy: tag, updatedAt: now })
     .where(eq(personas.id, existing.id));
+
+  // Decline any pending introductions addressed to this persona so they aren't
+  // wedged forever with no owner able to respond.
+  await db
+    .update(contactRequests)
+    .set({ status: 'declined', respondedAt: now, updatedBy: tag, updatedAt: now })
+    .where(and(eq(contactRequests.toPersonaUri, uri), eq(contactRequests.status, 'pending')));
+
   return true;
 }

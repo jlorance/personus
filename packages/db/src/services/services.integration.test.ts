@@ -8,7 +8,14 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { db } from '../index';
 import { eq } from '../orm';
-import { communities, personas, systemSettings, users, userTraits } from '../schema';
+import {
+  communities,
+  contactRequests,
+  personas,
+  systemSettings,
+  users,
+  userTraits,
+} from '../schema';
 import {
   hasTestDb,
   isVectorAvailable,
@@ -328,6 +335,26 @@ describe.skipIf(!hasTestDb)('service layer (integration)', () => {
       await expect(
         createContactRequest(sender, { fromPersonaUri: sp.uri, toPersonaUri: 'nope', reason: 'x' }),
       ).rejects.toBeInstanceOf(NotFoundError);
+    });
+
+    it('declines pending requests when the target persona is deleted', async () => {
+      const sender = await makeUser(33);
+      const recipient = await makeUser(34);
+      const sp = await createPersona(sender, { displayName: 'S3' });
+      const rp = await createPersona(recipient, { displayName: 'R3', visibility: 'public' });
+      const req = await createContactRequest(sender, {
+        fromPersonaUri: sp.uri,
+        toPersonaUri: rp.uri,
+        reason: 'collab',
+      });
+
+      await deletePersona(recipient, rp.uri);
+
+      const [after] = await db
+        .select({ status: contactRequests.status })
+        .from(contactRequests)
+        .where(eq(contactRequests.publicId, req.publicId));
+      expect(after.status).toBe('declined'); // no longer wedged in pending
     });
   });
 
