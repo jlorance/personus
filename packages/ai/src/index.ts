@@ -26,4 +26,5 @@ export {
   type InboundPlatformMessage,
   resolvePlatformChannels,
 } from './platform-channels';
+export { verifyPlatformSignature } from './platform-verify';
 export { buildAgentRequestContext, getToolPrincipal, PRINCIPAL_CTX_KEY } from './principal-context';

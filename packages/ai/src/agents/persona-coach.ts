@@ -16,6 +16,7 @@ import { updatePersona, updatePersonaTraits } from '@personus/db/services';
 import { getSetting } from '@personus/db/settings';
 import { z } from 'zod';
 import { calculateCompleteness } from '../completeness';
+import { redactPII, redactPIIDeep } from '../pii';
 import { runAuditedTool } from '../tool-helpers';
 
 const updatePersonaFieldTool = createTool({
@@ -33,7 +34,10 @@ const updatePersonaFieldTool = createTool({
   }),
   execute: async (inputData, ctx) =>
     runAuditedTool('update_persona_field', ctx as never, inputData, async (principal) => {
-      const { personaUri, field, value } = inputData;
+      const { personaUri, field } = inputData;
+      // Code-enforced PII redaction on the write path — contact details never get
+      // persisted into a persona even if the model skipped the check_pii tool.
+      const value = redactPIIDeep(inputData.value);
       const updated = await (async () => {
         if (field === 'headline' || field === 'location') {
           return updatePersona(principal, personaUri, { [field]: value });
@@ -63,23 +67,9 @@ const checkPIITool = createTool({
   description: 'Check text for PII (phone, email, address, SSN). Returns booleans + redacted text.',
   inputSchema: z.object({ text: z.string() }),
   execute: async (inputData, ctx) =>
-    runAuditedTool('check_pii', ctx as never, { textPresent: !!inputData.text }, async () => {
-      const patterns = [
-        { type: 'phone', regex: /\b\d{3}[-.]?\d{3}[-.]?\d{4}\b/ },
-        { type: 'email', regex: /\b[\w.+-]+@[\w-]+\.[\w.]+\b/ },
-        { type: 'ssn', regex: /\b\d{3}-?\d{2}-?\d{4}\b/ },
-        { type: 'address', regex: /\b\d{1,5}\s+\w+\s+(St|Ave|Blvd|Dr|Rd|Ln|Ct)\b/i },
-      ];
-      const detected: string[] = [];
-      let redactedText = inputData.text;
-      for (const p of patterns) {
-        if (p.regex.test(inputData.text)) {
-          detected.push(p.type);
-          redactedText = redactedText.replace(p.regex, '[REDACTED]');
-        }
-      }
-      return { hasPII: detected.length > 0, detectedTypes: detected, redactedText };
-    }),
+    runAuditedTool('check_pii', ctx as never, { textPresent: !!inputData.text }, async () =>
+      redactPII(inputData.text),
+    ),
 });
 
 const getCompletenessTool = createTool({
