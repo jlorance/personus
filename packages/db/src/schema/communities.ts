@@ -94,7 +94,7 @@ export const communityMembers = pgTable(
       .notNull(),
     role: text('role').notNull().default('member'),
     memberTraits: jsonb('member_traits').notNull().default(sql`'{}'::jsonb`),
-    visible: boolean('visible').default(true),
+    visible: boolean('visible').notNull().default(true),
     invitedByUserId: bigint('invited_by_user_id', { mode: 'bigint' }).references(() => users.id, {
       onDelete: 'set null',
     }),
