@@ -48,6 +48,33 @@ AI-native capability-discovery network. Monorepo (Turborepo + Bun workspaces).
 - `TEST_DATABASE_URL` and `REQUIRE_TEST_DB` are declared in `turbo.json` under the `test` task's `env`. They must stay there: without them in the cache key, Turbo replays a cached *skip* even when the variable is set, and `bun run test` cannot be fixed by exporting it.
 - Coverage: pure logic ~100% (`gates.ts`); the service layer is ~93% under the integration suite. Agents and Next routes still need e2e coverage.
 
+## Fabrik profile
+
+What the Fabrik skills read instead of hardcoding this repo's specifics. Everything else they need is in the sections above.
+
+```yaml
+tracker:      linear                     # team Personus, prefix PER-
+base_branch:  main
+gates:                                   # in order; all must pass before a PR merges
+  - bun run type-check
+  - bun run lint                         # biome check .
+  - bun run authz:check
+  - REQUIRE_TEST_DB=1 bun run test
+gates_conditional:
+  # test:e2e lives in apps/web, not the root — CI runs it with
+  # working-directory: apps/web. Plain `bun run test:e2e` fails at the root.
+  web:  bun run --filter @personus/web test:e2e
+test_db:
+  provision: bun run test:db create <unit>   # one database per delivery unit
+  release:   bun run test:db drop   <unit>
+  env:       TEST_DATABASE_URL               # already set on a build machine; never overwrite
+diff_globs:                              # what obliges which gate
+  source: '^(packages|apps)/.*\.(ts|tsx)$'
+  test:   '\.(test|spec)\.[tj]sx?$'
+  web:    '^apps/(web|admin)/'
+  ui:     '^apps/(web|admin)/(app|components)/.*\.tsx$'
+```
+
 ## graphify
 
 This project has a graphify knowledge graph at graphify-out/.
