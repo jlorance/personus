@@ -202,6 +202,50 @@ export async function memberRole(
   return m?.role ?? null;
 }
 
+/**
+ * Set whether the caller appears in a community's browsable member directory.
+ *
+ * Self-only by construction — there is no target parameter, so no member can
+ * change another's. Community admins are deliberately not exempt: this is a
+ * personal privacy control, not a moderation one. Hiding a member as an act of
+ * moderation is a different capability and wants its own audit trail.
+ *
+ * Unlike the read path, which returns `[]` for anyone not entitled to look,
+ * this refuses loudly. A read that says nothing leaks nothing; a write that
+ * silently does nothing tells the caller their preference was saved when it
+ * was not.
+ */
+export async function setMemberVisibility(
+  principal: ServicePrincipal,
+  slug: string,
+  visible: boolean,
+): Promise<void> {
+  if (!principal.userId || !principal.ability.can('update', 'Membership'))
+    throw new ForbiddenError();
+
+  const [community] = await db
+    .select({ id: communities.id })
+    .from(communities)
+    .where(and(eq(communities.slug, slug), isNull(communities.deletedAt)))
+    .limit(1);
+  // An unknown slug and a community the caller isn't in are the same refusal:
+  // distinguishing them would confirm the community exists.
+  if (!community) throw new ForbiddenError();
+
+  const updated = await db
+    .update(communityMembers)
+    .set({ visible, updatedBy: `user:${principal.userId}`, updatedAt: new Date() })
+    .where(
+      and(
+        eq(communityMembers.userId, BigInt(principal.userId)),
+        eq(communityMembers.communityId, community.id),
+      ),
+    )
+    .returning({ id: communityMembers.id });
+
+  if (updated.length === 0) throw new ForbiddenError();
+}
+
 /** One row of a community's browsable member directory. */
 export interface CommunityMemberSummary {
   uri: string;

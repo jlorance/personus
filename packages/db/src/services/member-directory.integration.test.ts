@@ -77,8 +77,8 @@ describe.skipIf(!hasTestDb)('listCommunityMembers', () => {
     return { founder, fp, community, member, mp };
   }
 
-  /** Set a member's directory visibility directly — the write path is PER-27. */
-  async function setVisible(userId: string, communityId: bigint, visible: boolean | null) {
+  /** Set a member's directory visibility directly, bypassing the PER-27 service. */
+  async function setVisible(userId: string, communityId: bigint, visible: boolean) {
     await db
       .update(communityMembers)
       .set({ visible })
@@ -118,14 +118,10 @@ describe.skipIf(!hasTestDb)('listCommunityMembers', () => {
     expect(rows.map((r) => r.displayName)).toEqual(['Anna Founder']);
   });
 
-  it('treats a NULL visible flag as hidden (fails closed)', async () => {
-    const { community, member, founder } = await seedCommunity();
-    await setVisible(founder.userId as string, community.id, null);
-
-    const rows = await listCommunityMembers(member, community.slug);
-
-    expect(rows.map((r) => r.displayName)).toEqual(['Bruno Member']);
-  });
+  // A "treats NULL as hidden" case lived here. PER-27 made the column NOT NULL,
+  // so that state can no longer be constructed — the service still filters
+  // `= true` as defence in depth, but the ambiguity it guarded is gone. The
+  // constraint itself is asserted in member-visibility.integration.test.ts.
 
   it('returns [] to a non-member rather than an error', async () => {
     const { community } = await seedCommunity();
