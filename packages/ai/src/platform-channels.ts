@@ -13,6 +13,7 @@
 
 import { getPlatformPrincipal } from '@personus/auth/principal';
 import { resolveBoundCommunity } from '@personus/db/services';
+import { env } from '@personus/env';
 import { logger } from '@personus/logger';
 import { TIMEOUTS, withTimeout } from '@personus/timeout';
 import { discoveryAgent } from './agents/discovery';
@@ -31,9 +32,9 @@ export interface PlatformChannelAdapterConfig {
  */
 export function resolvePlatformChannels(): PlatformChannelAdapterConfig[] {
   const configs: PlatformChannelAdapterConfig[] = [
-    { platform: 'slack', enabled: Boolean(process.env.SLACK_BOT_TOKEN) },
-    { platform: 'discord', enabled: Boolean(process.env.DISCORD_BOT_TOKEN) },
-    { platform: 'telegram', enabled: Boolean(process.env.TELEGRAM_BOT_TOKEN) },
+    { platform: 'slack', enabled: Boolean(env.SLACK_BOT_TOKEN) },
+    { platform: 'discord', enabled: Boolean(env.DISCORD_BOT_TOKEN) },
+    { platform: 'telegram', enabled: Boolean(env.TELEGRAM_BOT_TOKEN) },
   ];
   return configs.filter((c) => c.enabled);
 }
@@ -84,7 +85,7 @@ export async function handlePlatformMessage(
       matched: false,
     };
   }
-  if (!process.env.OPENAI_API_KEY) {
+  if (!env.OPENAI_API_KEY) {
     return { text: 'Discovery is temporarily offline. Please try again later.', matched: true };
   }
 

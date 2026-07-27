@@ -8,8 +8,8 @@
  */
 
 import { env } from '@personus/env';
-import { eq } from 'drizzle-orm';
 import { db } from './index';
+import { eq } from './orm';
 import { type SystemSetting, systemSettings } from './schema/system-settings';
 
 // Per-key TTL for the in-process settings cache. Overridable per environment
@@ -49,11 +49,16 @@ export async function getSetting<T = unknown>(key: string, fallback?: T): Promis
 /** Read all settings (optionally by category); warms the per-key cache. */
 export async function getSettings(category?: string): Promise<SystemSetting[]> {
   const now = Date.now();
-  const rows = category
-    ? await db.select().from(systemSettings).where(eq(systemSettings.category, category))
-    : await db.select().from(systemSettings);
-  for (const row of rows) cacheSet(row.key, row.value, now);
-  return rows;
+  try {
+    const rows = category
+      ? await db.select().from(systemSettings).where(eq(systemSettings.category, category))
+      : await db.select().from(systemSettings);
+    for (const row of rows) cacheSet(row.key, row.value, now);
+    return rows;
+  } catch {
+    // Fail safe like getSetting — degrade to empty rather than 500 the caller.
+    return [];
+  }
 }
 
 /** Evict one key — call after a write so the next read is fresh. */

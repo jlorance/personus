@@ -19,6 +19,7 @@ import {
 import { canViewPersona, endorsementTargetValid, type Viewer } from './gates';
 import {
   ForbiddenError,
+  isPlatformAdmin,
   NotFoundError,
   owns,
   personaSharesCommunity,
@@ -119,7 +120,7 @@ export async function createShadowPersona(
       ),
     )
     .limit(1);
-  if (!membership) throw new ForbiddenError();
+  if (!membership && !isPlatformAdmin(principal)) throw new ForbiddenError();
 
   const claimToken = `clm_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
   const [row] = await db
@@ -208,7 +209,8 @@ export async function listCommunities(
       .innerJoin(communityMembers, eq(communityMembers.communityId, communities.id))
       .where(
         and(eq(communityMembers.userId, BigInt(principal.userId)), isNull(communities.deletedAt)),
-      );
+      )
+      .limit(MAX_COMMUNITY_LIST); // cap the authenticated branch too — no unbounded result
   }
 
   return db

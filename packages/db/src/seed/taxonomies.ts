@@ -3,8 +3,8 @@
  * offers via its `lookup_suggestions` tool. Extend with more taxonomies as needed.
  */
 
-import { and, eq } from 'drizzle-orm';
 import { db } from '../index';
+import { and, eq } from '../orm';
 import { traitTaxonomies } from '../schema';
 
 interface TaxonomySeed {

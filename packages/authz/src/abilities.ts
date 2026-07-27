@@ -11,8 +11,8 @@
 
 import { AbilityBuilder, createMongoAbility, type PureAbility } from '@casl/ability';
 import { db } from '@personus/db';
-import { and, eq, isNull } from '@personus/db/orm';
-import { communityMembers, personas } from '@personus/db/schema';
+import { eq } from '@personus/db/orm';
+import { communityMembers } from '@personus/db/schema';
 
 export type Subjects =
   | 'User'
@@ -47,7 +47,6 @@ export type AppAbility = PureAbility<[Actions, Subjects]>;
 
 export interface AbilityContext {
   userId: string;
-  personaUris: string[];
   communityIds: string[];
   communityRoles: Record<string, string>;
   role: Role;
@@ -73,6 +72,15 @@ const PURGE_SUBJECTS: Subjects[] = [
   'CommunityType',
 ];
 
+/** Community-scoped subjects a community admin `manage`s — but may NOT purge. */
+const COMMUNITY_MANAGED_SUBJECTS: Subjects[] = [
+  'Membership',
+  'GuildTaxonomy',
+  'GuildOffering',
+  'GuildRequest',
+  'PlatformChannel',
+];
+
 /** Build CASL abilities for an authenticated user. Default deny, owner grants. */
 export function defineAbilitiesFor(context: AbilityContext): AppAbility {
   const { can, cannot, build } = new AbilityBuilder<AppAbility>(createMongoAbility);
@@ -84,6 +92,16 @@ export function defineAbilitiesFor(context: AbilityContext): AppAbility {
     can('manage', 'TraitTaxonomy');
     can('manage', 'TraitMetadata');
     can('manage', 'CommunityType');
+    // Platform superuser over community-scoped resources — one role, no
+    // per-community grant. `manage` = full CRUD + purge. The cross-owner /
+    // cross-community REACH is enforced in the service layer via
+    // isPlatformAdmin() overrides (this grant only opens the action types).
+    can('manage', 'Community');
+    can('manage', 'Membership');
+    can('manage', 'GuildTaxonomy');
+    can('manage', 'GuildOffering');
+    can('manage', 'GuildRequest');
+    can('manage', 'PlatformChannel');
   }
 
   // Personas — create/read/update/delete; ownership filtered in queries/services.
@@ -137,6 +155,14 @@ export function defineAbilitiesFor(context: AbilityContext): AppAbility {
     can('manage', 'GuildOffering');
     can('manage', 'GuildRequest');
     can('manage', 'PlatformChannel');
+    // A community admin fully manages their community — including `delete`
+    // (soft-delete) — but NOT `purge` (hard-delete), which stays reserved to
+    // platform admins / system actors. `manage` is a CASL wildcard that would
+    // otherwise grant purge, so invert it explicitly. Guarded on role so a
+    // PLATFORM admin who also runs a community keeps their purge grant.
+    if (role !== 'admin') {
+      for (const s of COMMUNITY_MANAGED_SUBJECTS) cannot('purge', s);
+    }
   }
 
   // Self-service join/leave — the service scopes create/delete to the caller's
@@ -170,7 +196,6 @@ export function parseRole(raw: unknown): Role {
 export function defineAbilitiesForRole(role: Role): AppAbility {
   return defineAbilitiesFor({
     userId: '',
-    personaUris: [],
     communityIds: [],
     communityRoles: {},
     role,
@@ -184,11 +209,6 @@ export async function buildAbilityContext(
 ): Promise<AbilityContext> {
   const userIdBig = BigInt(userId);
 
-  const userPersonas = await db
-    .select({ uri: personas.uri })
-    .from(personas)
-    .where(and(eq(personas.userId, userIdBig), isNull(personas.deletedAt)));
-
   const memberships = await db
     .select({ communityId: communityMembers.communityId, role: communityMembers.role })
     .from(communityMembers)
@@ -201,11 +221,5 @@ export async function buildAbilityContext(
     if (!communityRoles[cid] || m.role === 'admin') communityRoles[cid] = m.role;
   }
 
-  return {
-    userId,
-    personaUris: userPersonas.map((p) => p.uri),
-    communityIds,
-    communityRoles,
-    role,
-  };
+  return { userId, communityIds, communityRoles, role };
 }

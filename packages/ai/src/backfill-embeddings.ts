@@ -12,11 +12,12 @@ import { db } from '@personus/db';
 import { isNull } from '@personus/db/orm';
 import { personas } from '@personus/db/schema';
 import { updatePersonaEmbedding } from '@personus/db/services';
+import { env } from '@personus/env';
 import { logger } from '@personus/logger';
 import { embedPersona } from './embeddings';
 
 async function main(): Promise<void> {
-  if (!process.env.OPENAI_API_KEY) {
+  if (!env.OPENAI_API_KEY) {
     logger.error('[embeddings] OPENAI_API_KEY not set — nothing to do.');
     process.exit(1);
   }

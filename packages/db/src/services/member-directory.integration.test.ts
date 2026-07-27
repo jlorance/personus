@@ -162,6 +162,31 @@ describe.skipIf(!hasTestDb)('listCommunityMembers', () => {
     expect(rows.map((r) => r.displayName)).toEqual(['Aaron Early', 'Anna Founder', 'Bruno Member']);
   });
 
+  it('lets a platform superuser browse a community they never joined', async () => {
+    const { community } = await seedCommunity();
+    const admin = await makeUser();
+    // Platform superuser: `manage AdminSurface` is what isPlatformAdmin reads.
+    admin.ability = { can: () => true };
+
+    const rows = await listCommunityMembers(admin, community.slug);
+
+    expect(rows.map((r) => r.displayName)).toEqual(['Anna Founder', 'Bruno Member']);
+  });
+
+  it('still hides a member who opted out, even from a superuser', async () => {
+    const { community, founder } = await seedCommunity();
+    await setVisible(founder.userId as string, community.id, false);
+    const admin = await makeUser();
+    admin.ability = { can: () => true };
+
+    const rows = await listCommunityMembers(admin, community.slug);
+
+    // The superuser's reach crosses community boundaries; it does not override
+    // a member's own privacy choice. Same reason setMemberVisibility has no
+    // admin exemption.
+    expect(rows.map((r) => r.displayName)).toEqual(['Bruno Member']);
+  });
+
   it('scopes to the requested community and does not leak a sibling', async () => {
     const { community, member } = await seedCommunity();
 

@@ -16,7 +16,6 @@ import { type Actions, buildNarrowAbility, defineAbilitiesFor, type Subjects } f
 // ── Principal profiles ─────────────────────────────────────────────────────────
 const ctx = (over = {}) => ({
   userId: '1',
-  personaUris: [],
   communityIds: [],
   communityRoles: {},
   role: 'user' as const,
@@ -38,6 +37,8 @@ const PROFILES = {
 
 type ProfileName = keyof typeof PROFILES;
 const ALL: ProfileName[] = Object.keys(PROFILES) as ProfileName[];
+/** Every authenticated user profile (excludes anon reader + embeddings worker). */
+const AUTHED: ProfileName[] = ['user', 'member', 'communityAdmin', 'admin'];
 
 // ── The grid: [action, subject, profiles allowed] ──────────────────────────────
 // Anything not listed for a row is asserted DENIED for that profile.
@@ -63,14 +64,15 @@ const MATRIX: Array<[Actions, Subjects, ProfileName[]]> = [
   ['manage', 'TraitMetadata', ['admin']],
   ['manage', 'CommunityType', ['admin']],
 
-  // Community management — only the admin OF that community (community-scoped
-  // grant); platform admin does NOT get community management via `manage`.
-  ['manage', 'Membership', ['communityAdmin']],
-  ['manage', 'PlatformChannel', ['communityAdmin']],
-  ['manage', 'GuildTaxonomy', ['communityAdmin']],
-  ['manage', 'GuildOffering', ['communityAdmin']],
-  ['update', 'Community', ['communityAdmin']],
-  ['delete', 'Community', ['communityAdmin']],
+  // Community management — the admin OF that community, PLUS the platform admin
+  // (superuser holds `manage` on all community-scoped subjects; cross-community
+  // reach is enforced in the service layer via isPlatformAdmin()).
+  ['manage', 'Membership', ['communityAdmin', 'admin']],
+  ['manage', 'PlatformChannel', ['communityAdmin', 'admin']],
+  ['manage', 'GuildTaxonomy', ['communityAdmin', 'admin']],
+  ['manage', 'GuildOffering', ['communityAdmin', 'admin']],
+  ['update', 'Community', ['communityAdmin', 'admin']],
+  ['delete', 'Community', ['communityAdmin', 'admin']],
 
   // Endorsements are immutable — no profile may update.
   ['update', 'Endorsement', []],
@@ -82,6 +84,53 @@ const MATRIX: Array<[Actions, Subjects, ProfileName[]]> = [
   // Communities — read by anyone signed-in (+ anon reader); create by any user.
   ['read', 'Community', ['anonReader', 'user', 'member', 'communityAdmin', 'admin']],
   ['create', 'Community', ['user', 'member', 'communityAdmin', 'admin']],
+
+  // ── Previously-uncovered subjects (close the systematic gap) ──────────────────
+  // Self-scoped user data — every authenticated user; not anon/worker.
+  ['read', 'UserTraits', AUTHED],
+  ['update', 'UserTraits', AUTHED],
+  ['read', 'CoachSession', AUTHED],
+  ['create', 'CoachSession', AUTHED],
+  ['read', 'ShadowPersona', AUTHED],
+  ['create', 'ShadowPersona', AUTHED],
+  ['read', 'ContactRequest', AUTHED],
+  ['create', 'ContactRequest', AUTHED],
+  ['update', 'ContactRequest', AUTHED],
+  ['read', 'ActivityEvent', AUTHED],
+  ['create', 'ActivityEvent', AUTHED],
+  // Guild sub-area — read by members; managed only by the community admin.
+  ['read', 'GuildRequest', AUTHED],
+  ['manage', 'GuildRequest', ['communityAdmin', 'admin']],
+  // purge (HARD-delete) — reserved to the PLATFORM admin on EVERY subject.
+  // Community admins hold `manage` on their community's subjects, but an explicit
+  // cannot('purge') strips hard-delete (see abilities.ts).
+  ...(
+    [
+      'User',
+      'UserTraits',
+      'CoachSession',
+      'ShadowPersona',
+      'ContactRequest',
+      'Community',
+      'Membership',
+      'ActivityEvent',
+      'GuildTaxonomy',
+      'GuildOffering',
+      'GuildRequest',
+      'PlatformChannel',
+      'TraitMetadata',
+      'TraitTaxonomy',
+      'CommunityType',
+    ] as Subjects[]
+  ).map((s): [Actions, Subjects, ProfileName[]] => ['purge', s, ['admin']]),
+  // …SOFT-delete (`delete`) is held by the community admin AND the platform admin
+  // (both hold `manage` on these subjects). Membership `delete` is broader still —
+  // every user can leave (self-service).
+  ['delete', 'Membership', AUTHED],
+  ['delete', 'PlatformChannel', ['communityAdmin', 'admin']],
+  ['delete', 'GuildTaxonomy', ['communityAdmin', 'admin']],
+  ['delete', 'GuildOffering', ['communityAdmin', 'admin']],
+  ['delete', 'GuildRequest', ['communityAdmin', 'admin']],
 ];
 
 describe('authorization matrix (action × subject × principal)', () => {
