@@ -27,4 +27,12 @@ export {
   resolvePlatformChannels,
 } from './platform-channels';
 export { verifyPlatformSignature } from './platform-verify';
-export { buildAgentRequestContext, getToolPrincipal, PRINCIPAL_CTX_KEY } from './principal-context';
+export {
+  AGENT_IDS,
+  type AgentId,
+  agentRequestContexts,
+  buildAgentRequestContext,
+  contextWithPrincipal,
+  getToolPrincipal,
+  PRINCIPAL_CTX_KEY,
+} from './principal-context';

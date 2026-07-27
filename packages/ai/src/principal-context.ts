@@ -23,6 +23,35 @@ export function buildAgentRequestContext(
   return new RequestContext<PersonusRequestContextShape>([[PRINCIPAL_CTX_KEY, delegated]]);
 }
 
+/** The agents registered on the Mastra instance. */
+export const AGENT_IDS = ['persona-coach', 'discovery', 'recommender'] as const;
+export type AgentId = (typeof AGENT_IDS)[number];
+
+/**
+ * One delegated RequestContext per registered agent.
+ *
+ * Per-agent, not one shared context, because `asAgent` stamps `actorId` and
+ * `delegatedAuthority.agentId` from the agent it is given — and the audit log
+ * writes `principal.actorId`. A single shared context would attribute every
+ * tool call to whichever agent id happened to be chosen, so Discovery's actions
+ * would be logged as the Coach's.
+ *
+ * Returns `undefined` per agent for an anonymous caller: there is no user
+ * authority to delegate, and `getToolPrincipal` should take its own path rather
+ * than be handed an empty context.
+ */
+export function agentRequestContexts(
+  base: Principal | null | undefined,
+  sessionId: string,
+): Record<AgentId, RequestContext<PersonusRequestContextShape> | undefined> {
+  return Object.fromEntries(
+    AGENT_IDS.map((agentId) => [
+      agentId,
+      base ? buildAgentRequestContext(base, { agentId, sessionId }) : undefined,
+    ]),
+  ) as Record<AgentId, RequestContext<PersonusRequestContextShape> | undefined>;
+}
+
 /**
  * Wrap an already-scoped principal (e.g. a platform-bot or MCP principal that is
  * not a user actor) into a RequestContext, without the asAgent user-delegation
@@ -40,8 +69,11 @@ export function contextWithPrincipal(
  * falls back to a narrow dev principal so conversational tool calls degrade
  * gracefully instead of hard-failing. In production, a missing principal throws.
  */
-export function getToolPrincipal(
-  ctx: { requestContext?: RequestContext<unknown> } | undefined,
+// Generic in the context's shape: RequestContext is invariant, so a fixed
+// `RequestContext<unknown>` parameter rejects the very contexts this module
+// builds. Callers pass whatever they hold; the read is narrowed below.
+export function getToolPrincipal<T>(
+  ctx: { requestContext?: RequestContext<T> } | undefined,
 ): Principal {
   const rc = ctx?.requestContext as RequestContext<PersonusRequestContextShape> | undefined;
   const p = rc?.get(PRINCIPAL_CTX_KEY);
