@@ -35,7 +35,17 @@ AI-native capability-discovery network. Monorepo (Turborepo + Bun workspaces).
 ## Testing
 - Unit tests run everywhere: `bun run test` (Turbo) or `bun run test:coverage` (root Vitest, coverage).
 - **Integration tests** (`packages/db/src/services/services.integration.test.ts`) exercise the service layer against a **real Postgres 17 + pgvector**. They run only when `TEST_DATABASE_URL` is set (CI uses the `pgvector/pgvector:pg17` service); otherwise they skip. The harness (`packages/db/src/test/harness.ts`) applies the committed migration; if pgvector is unavailable it falls back to a vector-free DDL so the suite still runs on plain Postgres.
-- Local run: `brew install postgresql@17 pgvector`, `initdb` a throwaway cluster, `createdb`, then `TEST_DATABASE_URL=… bun run test:coverage`. Verified locally on PostgreSQL 17 + pgvector 0.8.5 (real `vector(1536)` columns + `ivfflat` indexes).
+- Local run: `brew install postgresql@17 pgvector`, then
+
+  ```sh
+  export TEST_DATABASE_URL="$(bun run --silent test:db)"   # throwaway cluster, TCP :54317
+  bun run test
+  bun run test:db down                                      # when finished
+  ```
+
+  Verified on PostgreSQL 17.10 + pgvector 0.8.5 (real `vector(1536)` columns + `ivfflat` indexes): 26 integration cases.
+- **A skip is not a pass.** Without `TEST_DATABASE_URL` the suite prints `⚠️ REDUCED COVERAGE` and the service layer goes untested — Turbo's summary line reports only "N successful", so the skip is invisible at the top level. Set **`REQUIRE_TEST_DB=1`** anywhere the database is expected (CI, build machines) and a missing database fails the run instead of silently narrowing it.
+- `TEST_DATABASE_URL` and `REQUIRE_TEST_DB` are declared in `turbo.json` under the `test` task's `env`. They must stay there: without them in the cache key, Turbo replays a cached *skip* even when the variable is set, and `bun run test` cannot be fixed by exporting it.
 - Coverage: pure logic ~100% (`gates.ts`); the service layer is ~93% under the integration suite. Agents and Next routes still need e2e coverage.
 
 ## graphify
