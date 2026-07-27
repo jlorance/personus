@@ -8,6 +8,7 @@
  * (auth → db) and avoids a cycle. @personus/auth re-exports these errors.
  */
 
+import { atomic } from '../atomic';
 import { db } from '../index';
 import { and, type Column, eq, inArray, isNull } from '../orm';
 import { communityMembers, personas, userTraits } from '../schema';
@@ -178,18 +179,25 @@ export async function updatePersonaTraits(
   if (!owns(existing, principal)) throw new ForbiddenError();
 
   const tag = principalTag(principal);
-  const [updated] = await db
-    .update(personas)
-    .set({ traits, updatedBy: tag, updatedAt: new Date() })
-    .where(eq(personas.id, existing.id))
-    .returning();
+  const now = new Date();
 
-  // Mirror into the master trait pool (best-effort; pool is source of truth for reuse).
-  await db
-    .update(userTraits)
-    .set({ traits, updatedBy: tag, updatedAt: new Date() })
-    .where(eq(userTraits.userId, existing.userId));
+  // The persona and the master trait pool must move together. Split apart, a
+  // failure between them leaves the persona showing new traits while the pool
+  // — the stated source of truth for reuse — holds stale ones, and every
+  // persona later seeded from the pool inherits the pre-failure data (PER-22).
+  const results = await atomic((tx) => [
+    tx
+      .update(personas)
+      .set({ traits, updatedBy: tag, updatedAt: now })
+      .where(eq(personas.id, existing.id))
+      .returning(),
+    tx
+      .update(userTraits)
+      .set({ traits, updatedBy: tag, updatedAt: now })
+      .where(eq(userTraits.userId, existing.userId)),
+  ]);
 
+  const [updated] = (results[0] ?? []) as (typeof personas.$inferSelect)[];
   return updated ?? null;
 }
 

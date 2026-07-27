@@ -3,6 +3,7 @@
  * search.ts (getPersonaByUri) and index.ts (updatePersona/updatePersonaTraits).
  */
 
+import { atomic } from '../atomic';
 import { db } from '../index';
 import { and, eq, isNull } from '../orm';
 import { contactRequests, personas } from '../schema';
@@ -90,17 +91,21 @@ export async function deletePersona(principal: ServicePrincipal, uri: string): P
 
   const now = new Date();
   const tag = principalTag(principal);
-  await db
-    .update(personas)
-    .set({ deletedAt: now, updatedBy: tag, updatedAt: now })
-    .where(eq(personas.id, existing.id));
-
-  // Decline any pending introductions addressed to this persona so they aren't
-  // wedged forever with no owner able to respond.
-  await db
-    .update(contactRequests)
-    .set({ status: 'declined', respondedAt: now, updatedBy: tag, updatedAt: now })
-    .where(and(eq(contactRequests.toPersonaUri, uri), eq(contactRequests.status, 'pending')));
+  // The soft-delete and the decline must land together. Split across two calls,
+  // a failure between them produces exactly the state the comment below warns
+  // about: requests stuck pending with no owner able to respond (PER-22).
+  await atomic((tx) => [
+    tx
+      .update(personas)
+      .set({ deletedAt: now, updatedBy: tag, updatedAt: now })
+      .where(eq(personas.id, existing.id)),
+    // Decline any pending introductions addressed to this persona so they aren't
+    // wedged forever with no owner able to respond.
+    tx
+      .update(contactRequests)
+      .set({ status: 'declined', respondedAt: now, updatedBy: tag, updatedAt: now })
+      .where(and(eq(contactRequests.toPersonaUri, uri), eq(contactRequests.status, 'pending'))),
+  ]);
 
   return true;
 }
