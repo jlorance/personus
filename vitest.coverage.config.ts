@@ -11,6 +11,15 @@ export default defineConfig({
   test: {
     include: ['packages/**/*.test.ts'],
     exclude: ['**/node_modules/**', '**/dist/**', '**/.next/**'],
+    // More than one integration file now shares a single database, and the
+    // harness resets it with `DROP SCHEMA public CASCADE` in beforeAll. Run
+    // files one at a time: in parallel they race, and the loser dies with
+    // `schema "public" already exists` or — worse — passes against a schema
+    // another file is mid-drop.
+    //
+    // This config does NOT inherit packages/db/vitest.config.ts, so the same
+    // setting is required in both. CI's `verify` job runs this one.
+    fileParallelism: false,
     coverage: {
       provider: 'v8',
       reporter: ['text-summary', 'json-summary', 'text'],

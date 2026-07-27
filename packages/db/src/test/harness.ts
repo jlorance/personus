@@ -17,6 +17,27 @@ import { setDbForTests } from '../index';
 
 export const hasTestDb = Boolean(process.env.TEST_DATABASE_URL);
 
+/**
+ * A silent skip is indistinguishable from a pass. Without TEST_DATABASE_URL the
+ * whole service layer goes untested while `bun run test` still exits 0 — and
+ * Turbo's summary line reports only "N successful", so the skip disappears
+ * entirely at the top level.
+ *
+ * Set REQUIRE_TEST_DB=1 anywhere the database is expected (CI, build machines)
+ * and a missing database fails the run instead of quietly reducing its scope.
+ */
+if (!hasTestDb) {
+  const detail =
+    'TEST_DATABASE_URL is not set — the service-layer integration suite will NOT run. ' +
+    'Start one with `bun run test:db` and re-run with that URL exported.';
+  if (process.env.REQUIRE_TEST_DB) {
+    throw new Error(`REQUIRE_TEST_DB is set but ${detail}`);
+  }
+  // Direct to stderr rather than @personus/logger: this is test infrastructure,
+  // it must surface before any app wiring exists, and the runner shows stderr.
+  process.stderr.write(`\n⚠️  REDUCED COVERAGE: ${detail}\n\n`);
+}
+
 let pool: Pool | null = null;
 let vectorAvailable = false;
 

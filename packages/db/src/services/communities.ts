@@ -3,6 +3,7 @@
  * Listing lives in mutations.ts (listCommunities).
  */
 
+import { atomic } from '../atomic';
 import { db } from '../index';
 import { and, eq, isNull, sql } from '../orm';
 import { communities, communityMembers, personas } from '../schema';
@@ -119,18 +120,26 @@ export async function joinCommunity(
   if (existing) return; // already a member
 
   const tag = `user:${principal.userId}`;
-  await db.insert(communityMembers).values({
-    userId: BigInt(principal.userId),
-    personaId: persona.id,
-    communityId: community.id,
-    role: 'member',
-    createdBy: tag,
-    updatedBy: tag,
-  });
-  await db
-    .update(communities)
-    .set({ memberCount: sql`${communities.memberCount} + 1` })
-    .where(eq(communities.id, community.id));
+  // Hoisted out of the closure: `owns()` above narrows `principal.userId` to
+  // non-null, but that narrowing does not survive into a callback.
+  const memberUserId = BigInt(principal.userId as string);
+  // Membership and the denormalised counter must land together: a failure
+  // between them leaves the user a member of a community whose memberCount
+  // never incremented, and the drift is permanent (PER-22).
+  await atomic((tx) => [
+    tx.insert(communityMembers).values({
+      userId: memberUserId,
+      personaId: persona.id,
+      communityId: community.id,
+      role: 'member',
+      createdBy: tag,
+      updatedBy: tag,
+    }),
+    tx
+      .update(communities)
+      .set({ memberCount: sql`${communities.memberCount} + 1` })
+      .where(eq(communities.id, community.id)),
+  ]);
 }
 
 /** Leave a community. Returns false if the principal wasn't a member. */
@@ -144,21 +153,28 @@ export async function leaveCommunity(principal: ServicePrincipal, slug: string):
     .limit(1);
   if (!community) return false;
 
-  const deleted = await db
-    .delete(communityMembers)
-    .where(
-      and(
-        eq(communityMembers.userId, BigInt(principal.userId)),
-        eq(communityMembers.communityId, community.id),
-      ),
-    )
-    .returning({ id: communityMembers.id });
+  const memberPredicate = and(
+    eq(communityMembers.userId, BigInt(principal.userId)),
+    eq(communityMembers.communityId, community.id),
+  );
 
-  if (deleted.length > 0) {
-    await db
+  // Decrement first, guarded on the membership still existing, then delete —
+  // both in one atomic unit. Ordering matters: the guard has to observe the row
+  // before it is removed. Doing the delete first and the decrement after (the
+  // previous shape) drops the counter update entirely if the second call fails.
+  const results = await atomic((tx) => [
+    tx
       .update(communities)
       .set({ memberCount: sql`GREATEST(0, ${communities.memberCount} - 1)` })
-      .where(eq(communities.id, community.id));
-  }
+      .where(
+        and(
+          eq(communities.id, community.id),
+          sql`EXISTS (SELECT 1 FROM ${communityMembers} WHERE ${memberPredicate})`,
+        ),
+      ),
+    tx.delete(communityMembers).where(memberPredicate).returning({ id: communityMembers.id }),
+  ]);
+
+  const deleted = (results[1] ?? []) as { id: unknown }[];
   return deleted.length > 0;
 }
