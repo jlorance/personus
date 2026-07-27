@@ -5,7 +5,7 @@
 
 import { atomic } from '../atomic';
 import { db } from '../index';
-import { and, eq, isNull, sql } from '../orm';
+import { and, asc, eq, isNull, sql } from '../orm';
 import { communities, communityMembers, personas } from '../schema';
 import { slugifyName } from './gates';
 import { ForbiddenError, NotFoundError, owns, type ServicePrincipal } from './index';
@@ -177,4 +177,82 @@ export async function leaveCommunity(principal: ServicePrincipal, slug: string):
 
   const deleted = (results[1] ?? []) as { id: unknown }[];
   return deleted.length > 0;
+}
+
+/**
+ * The caller's role in a community, or null when they are not a member.
+ * Lives here rather than in a consuming module because community membership is
+ * this module's concern; `platform-channels` imports it.
+ */
+export async function memberRole(
+  principal: ServicePrincipal,
+  communityId: bigint,
+): Promise<string | null> {
+  if (!principal.userId) return null;
+  const [m] = await db
+    .select({ role: communityMembers.role })
+    .from(communityMembers)
+    .where(
+      and(
+        eq(communityMembers.userId, BigInt(principal.userId)),
+        eq(communityMembers.communityId, communityId),
+      ),
+    )
+    .limit(1);
+  return m?.role ?? null;
+}
+
+/** One row of a community's browsable member directory. */
+export interface CommunityMemberSummary {
+  uri: string;
+  displayName: string;
+  headline: string | null;
+  location: string | null;
+  completenessScore: number | null;
+  role: string;
+}
+
+/**
+ * The browsable member directory for a community, visible to its members.
+ *
+ * Returns `[]` — never an error — for a non-member, an anonymous caller, or an
+ * unknown slug. That is deliberate: an error would confirm the community exists
+ * to someone not entitled to know, and it matches the repo's 404-not-403 shape.
+ *
+ * `visible` is nullable (`boolean().default(true)`, no `.notNull()`), so this
+ * filters on `= true` and treats NULL as hidden. It fails closed: an
+ * indeterminate flag never exposes someone in a browsable list.
+ */
+export async function listCommunityMembers(
+  principal: ServicePrincipal,
+  slug: string,
+): Promise<CommunityMemberSummary[]> {
+  const [community] = await db
+    .select({ id: communities.id })
+    .from(communities)
+    .where(and(eq(communities.slug, slug), isNull(communities.deletedAt)))
+    .limit(1);
+  if (!community) return [];
+
+  if ((await memberRole(principal, community.id)) === null) return [];
+
+  return await db
+    .select({
+      uri: personas.uri,
+      displayName: personas.displayName,
+      headline: personas.headline,
+      location: personas.location,
+      completenessScore: personas.completenessScore,
+      role: communityMembers.role,
+    })
+    .from(communityMembers)
+    .innerJoin(personas, eq(personas.id, communityMembers.personaId))
+    .where(
+      and(
+        eq(communityMembers.communityId, community.id),
+        eq(communityMembers.visible, true),
+        isNull(personas.deletedAt),
+      ),
+    )
+    .orderBy(asc(personas.displayName));
 }

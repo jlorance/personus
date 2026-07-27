@@ -11,25 +11,8 @@
 import { db } from '../index';
 import { and, eq, isNull } from '../orm';
 import { communityMembers, platformChannelBindings } from '../schema';
+import { memberRole } from './communities';
 import { ForbiddenError, NotFoundError, type ServicePrincipal, toBigId } from './index';
-
-async function memberRole(
-  principal: ServicePrincipal,
-  communityId: bigint,
-): Promise<string | null> {
-  if (!principal.userId) return null;
-  const [m] = await db
-    .select({ role: communityMembers.role })
-    .from(communityMembers)
-    .where(
-      and(
-        eq(communityMembers.userId, BigInt(principal.userId)),
-        eq(communityMembers.communityId, communityId),
-      ),
-    )
-    .limit(1);
-  return m?.role ?? null;
-}
 
 async function assertCommunityAdmin(
   principal: ServicePrincipal,
