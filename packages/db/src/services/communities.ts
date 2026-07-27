@@ -8,7 +8,13 @@ import { db } from '../index';
 import { and, asc, eq, isNull, sql } from '../orm';
 import { communities, communityMembers, personas } from '../schema';
 import { slugifyName } from './gates';
-import { ForbiddenError, NotFoundError, owns, type ServicePrincipal } from './index';
+import {
+  ForbiddenError,
+  isPlatformAdmin,
+  NotFoundError,
+  owns,
+  type ServicePrincipal,
+} from './index';
 
 /** Create a community; the founder joins as an admin member with the given persona. */
 export async function createCommunity(
@@ -278,7 +284,15 @@ export async function listCommunityMembers(
     .limit(1);
   if (!community) return [];
 
-  if ((await memberRole(principal, community.id)) === null) return [];
+  // Membership gate — a platform superuser may browse any community's directory
+  // for support/moderation, matching listPlatformChannels.
+  //
+  // The `visible = true` filter below still applies to them. That reach is about
+  // crossing community boundaries, not about overriding a member's own privacy
+  // choice — the same reason setMemberVisibility has no admin exemption.
+  if (!isPlatformAdmin(principal) && (await memberRole(principal, community.id)) === null) {
+    return [];
+  }
 
   return await db
     .select({
