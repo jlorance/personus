@@ -19,7 +19,13 @@ export const mastra = new Mastra({
 });
 
 export { personaCoachAgent, discoveryAgent, recommenderAgent };
-export { embedPersona, embedText, personaEmbeddingText } from './embeddings';
+export {
+  EMBEDDING_RELEVANT_FIELDS,
+  embedPersona,
+  embedText,
+  personaEmbeddingText,
+  refreshPersonaEmbedding,
+} from './embeddings';
 export {
   buildChannelsConfig,
   handlePlatformMessage,
