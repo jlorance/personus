@@ -16,15 +16,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // ---------- mock: @clerk/nextjs/server ----------------------------------
-// Must be declared before any import that transitively resolves this module.
-// Vitest hoists vi.mock() calls to the top of the compiled output, so the
-// factory runs before any import statement in this file.
+// vi.mock() is hoisted to before all imports, so its factory must not close
+// over module-scope variables that aren't yet initialised. vi.hoisted()
+// runs *inside* the hoisting pass and is therefore available to the factory.
 
-const protectSpy = vi.fn().mockResolvedValue(undefined);
+const protectSpy = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 
 vi.mock('@clerk/nextjs/server', () => {
-  // The factory is called fresh each time the module is required; rebuild the
-  // spy reference so afterEach can reset it without losing the reference.
   return {
     clerkMiddleware:
       (handler: (auth: unknown, req: unknown, evt: unknown) => unknown) =>
