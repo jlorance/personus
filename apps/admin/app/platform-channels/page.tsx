@@ -1,4 +1,4 @@
-import { listAllPlatformChannelBindings } from '@personus/db/services';
+import { ForbiddenError, listAllPlatformChannelBindings } from '@personus/db/services';
 import { getAdminPrincipal } from '../lib/require-admin';
 import { revokeChannelAction } from './actions';
 
@@ -22,8 +22,12 @@ export default async function PlatformChannelsPage() {
   let bindings: Awaited<ReturnType<typeof listAllPlatformChannelBindings>> = [];
   try {
     bindings = await listAllPlatformChannelBindings(principal);
-  } catch {
-    bindings = [];
+  } catch (err) {
+    // Only swallow the expected case: admin is not a platform superuser.
+    // All other failures (DB errors, unexpected service throws) propagate
+    // so Next.js can surface them via the error boundary rather than
+    // silently showing "No active platform-channel bindings".
+    if (!(err instanceof ForbiddenError)) throw err;
   }
 
   return (
