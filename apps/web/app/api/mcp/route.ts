@@ -14,7 +14,9 @@
 
 import { getAnonymousMcpPrincipal } from '@personus/auth/principal';
 import { compression } from '@personus/compression';
+import { RATE_LIMIT_MCP_TOOLS_MAX, RATE_LIMIT_WINDOW_MS } from '@personus/constants';
 import {
+  checkRateLimit,
   getPersonaByUri,
   listCommunities,
   searchPersonas,
@@ -88,6 +90,15 @@ async function toolContent(data: unknown) {
   return { content: [{ type: 'text', text }] };
 }
 
+/** Extract the best-available client IP for rate-limit keying. */
+function clientIp(req: Request): string {
+  return (
+    (req.headers.get('x-forwarded-for') ?? '').split(',')[0]?.trim() ||
+    req.headers.get('x-real-ip') ||
+    'unknown'
+  );
+}
+
 export async function POST(req: Request) {
   let body: { jsonrpc?: string; id?: unknown; method?: string; params?: any };
   try {
@@ -116,6 +127,17 @@ export async function POST(req: Request) {
       // flag is off or its lookup errors.
       if (!(await flags.isEnabled('mcp_enabled', false))) {
         return rpcError(id, -32000, 'MCP tools are disabled');
+      }
+      // Rate-limit tool invocations by IP. The non-tool methods (initialize,
+      // ping, tools/list) are cheap and unauthenticated; only tools/call fires
+      // a pgvector scan and is the attack surface for cost exhaustion.
+      const rl = await checkRateLimit(
+        `mcp_tool:${clientIp(req)}`,
+        RATE_LIMIT_WINDOW_MS,
+        RATE_LIMIT_MCP_TOOLS_MAX,
+      );
+      if (!rl.allowed) {
+        return rpcError(id, -32000, 'Rate limit exceeded');
       }
       const principal = getAnonymousMcpPrincipal(req);
       const name = params?.name as string;

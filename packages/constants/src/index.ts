@@ -87,3 +87,27 @@ export const EXPLORE_PAGE_SIZE = 12;
 export const MAX_QUERY_LENGTH = 200;
 /** Max anonymous community list size. */
 export const MAX_COMMUNITY_LIST = 50;
+
+/**
+ * Public-endpoint rate limiting.
+ *
+ * Both `/api/discover` and `/api/mcp` (tools/call) are anonymous paths that
+ * fire expensive backend operations (OpenAI embedding + pgvector scan).
+ * These ceilings bound budget exhaustion to an acceptable burst before any
+ * per-user billing or auth exists. Window is shared across both surfaces.
+ */
+/** Sliding-window duration for public-endpoint rate limits (milliseconds). */
+export const RATE_LIMIT_WINDOW_MS = 60_000;
+/**
+ * Max requests to GET /api/discover per window per IP.
+ * Each request fires an OpenAI embedText() call — keep this conservative.
+ */
+export const RATE_LIMIT_DISCOVER_MAX = 30;
+/**
+ * Max requests to POST /api/mcp tools/call per window per IP.
+ * pgvector scan only (no embedding); slightly more generous than discover.
+ */
+export const RATE_LIMIT_MCP_TOOLS_MAX = 60;
+
+/** Maximum agentic steps any single Mastra agent session may take. */
+export const AGENT_MAX_STEPS = 20;
