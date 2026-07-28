@@ -9,7 +9,7 @@ import { defineConfig } from 'vitest/config';
  */
 export default defineConfig({
   test: {
-    include: ['packages/**/*.test.ts'],
+    include: ['packages/**/*.test.ts', 'test/**/*.test.ts'],
     exclude: ['**/node_modules/**', '**/dist/**', '**/.next/**'],
     // More than one integration file now shares a single database, and the
     // harness resets it with `DROP SCHEMA public CASCADE` in beforeAll. Run
