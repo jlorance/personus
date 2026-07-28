@@ -8,7 +8,8 @@
     "./schema": "./src/schema/index.ts",
     "./services": "./src/services/index.ts",
     "./settings": "./src/settings-cache.ts",
-    "./seed": "./src/seed/index.ts"
+    "./seed": "./src/seed/index.ts",
+    "./test": "./src/test/harness.ts"
   },
   "scripts": {
     "db:generate": "drizzle-kit generate",

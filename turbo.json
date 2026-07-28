@@ -20,6 +20,12 @@
       "outputs": ["coverage/**"],
       "env": ["TEST_DATABASE_URL", "REQUIRE_TEST_DB"]
     },
+    "@personus/ai#test": {
+      "dependsOn": ["^build", "@personus/db#test"],
+      "cache": false,
+      "outputs": [],
+      "env": ["TEST_DATABASE_URL", "REQUIRE_TEST_DB"]
+    },
     "dev": {
       "cache": false,
       "persistent": true

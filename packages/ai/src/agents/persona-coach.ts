@@ -17,6 +17,7 @@ import { updatePersona, updatePersonaTraits } from '@personus/db/services';
 import { getSetting } from '@personus/db/settings';
 import { z } from 'zod';
 import { calculateCompleteness } from '../completeness';
+import { EMBEDDING_RELEVANT_FIELDS, refreshPersonaEmbedding } from '../embeddings';
 import { redactPII, redactPIIDeep } from '../pii';
 import { runAuditedTool } from '../tool-helpers';
 
@@ -53,6 +54,14 @@ const updatePersonaFieldTool = createTool({
         return updatePersonaTraits(principal, personaUri, merged);
       })();
       if (!updated) return { success: false as const, error: 'Persona not found' };
+
+      // Best-effort semantic-index refresh. Only fields that contribute to the
+      // embedding text trigger this — the semantic debounce (layout/theme/
+      // completeness changes are not worth a round-trip to the embedding API).
+      // Fire-and-forget: the tool responds immediately; errors are logged inside.
+      if (EMBEDDING_RELEVANT_FIELDS.has(field)) {
+        void refreshPersonaEmbedding(personaUri);
+      }
 
       const { score, breakdown, nextSuggestions } = await calculateCompleteness(updated);
       await db
