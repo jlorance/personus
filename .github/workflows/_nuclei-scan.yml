@@ -59,13 +59,13 @@ jobs:
           category: nuclei-${{ steps.slug.outputs.value }}
 
       - name: Upload raw findings artifact
-        if: always() && (hashFiles('nuclei.json') != '' || hashFiles('nuclei.md') != '')
+        if: always() && (hashFiles('nuclei.json') != '' || hashFiles('nuclei-markdown/') != '')
         uses: actions/upload-artifact@v4
         with:
           name: nuclei-${{ steps.slug.outputs.value }}
           path: |
             nuclei.json
-            nuclei.md
+            nuclei-markdown/
             nuclei.sarif
           if-no-files-found: ignore
 
@@ -83,8 +83,8 @@ jobs:
             exit 0
           fi
 
-          if [ -s nuclei.md ]; then
-            cat nuclei.md >> "$GITHUB_STEP_SUMMARY"
+          if [ -d nuclei-markdown ] && [ -n "$(ls -A nuclei-markdown)" ]; then
+            cat nuclei-markdown/*.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
             echo >> "$GITHUB_STEP_SUMMARY"
           fi
 

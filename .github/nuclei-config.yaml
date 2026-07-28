@@ -39,7 +39,7 @@ tags:
 # Tags that are never useful for a hosted Next.js product
 exclude-tags:
   - dos
-  - fuzzing
+  - fuzz
   - intrusive
 
 # Scan tuning — conservative values suitable for a live preview or production URL
@@ -51,5 +51,6 @@ stats: true
 # Output formats written by nuclei; the workflow uploads these as artifacts and
 # pushes SARIF to the GitHub Security Code Scanning tab.
 json-export: nuclei.json
-markdown-export: nuclei.md
+# nuclei v3 writes one file per finding into a directory; specify a directory name
+markdown-export: nuclei-markdown
 sarif-export: nuclei.sarif
