@@ -1,0 +1,10 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      "dependsOn": ["@personus/db#test"],
+      "env": ["TEST_DATABASE_URL", "REQUIRE_TEST_DB"]
+    }
+  }
+}
