@@ -223,6 +223,7 @@ export * from './gates';
 export * from './mutations';
 export * from './personas';
 export * from './platform-channels';
+export * from './rate-limit';
 export * from './reference';
 export * from './search';
 export * from './settings.service';

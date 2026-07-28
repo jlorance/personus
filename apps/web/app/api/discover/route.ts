@@ -12,17 +12,46 @@ import {
   DISCOVERY_DEFAULT_RESULTS,
   MAX_QUERY_LENGTH,
   MAX_SEARCH_RESULTS,
+  RATE_LIMIT_DISCOVER_MAX,
+  RATE_LIMIT_WINDOW_MS,
 } from '@personus/constants';
-import { searchPersonas } from '@personus/db/services';
+import { checkRateLimit, searchPersonas } from '@personus/db/services';
 import { flags } from '@personus/flags';
 import { logger } from '@personus/logger';
 import { NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
 
+/** Extract the best-available client IP for rate-limit keying. */
+function clientIp(req: Request): string {
+  return (
+    (req.headers.get('x-forwarded-for') ?? '').split(',')[0]?.trim() ||
+    req.headers.get('x-real-ip') ||
+    'unknown'
+  );
+}
+
 export async function GET(req: Request) {
   if (!(await flags.isEnabled('mcp_enabled', false))) {
     return NextResponse.json({ error: 'discovery disabled' }, { status: 403 });
+  }
+
+  const rl = await checkRateLimit(
+    `discover:${clientIp(req)}`,
+    RATE_LIMIT_WINDOW_MS,
+    RATE_LIMIT_DISCOVER_MAX,
+  );
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: 'rate limit exceeded' },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': String(rl.retryAfter ?? Math.ceil(RATE_LIMIT_WINDOW_MS / 1000)),
+          'X-RateLimit-Remaining': '0',
+        },
+      },
+    );
   }
 
   const url = new URL(req.url);
