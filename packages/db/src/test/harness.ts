@@ -57,6 +57,7 @@ const TABLES = [
   'community_members',
   'community_types',
   'contact_requests',
+  'coach_sessions',
   'trait_metadata',
   'trait_taxonomies',
   'guild_skill_categories',

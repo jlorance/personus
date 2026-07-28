@@ -9,6 +9,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { db } from '../index';
 import { eq } from '../orm';
 import {
+  coachSessions,
   communities,
   contactRequests,
   personas,
@@ -42,6 +43,8 @@ import {
   listPlatformChannels,
   listSystemSettings,
   NotFoundError,
+  purgePersona,
+  purgeUserCoachSessions,
   resolveBoundCommunity,
   respondToContact,
   retractEndorsement,
@@ -583,6 +586,121 @@ describe.skipIf(!hasTestDb)('service layer (integration)', () => {
       // a non-admin ability is refused
       const nonAdmin = { userId: '1', ability: { can: () => false } };
       await expect(listSystemSettings(nonAdmin)).rejects.toBeInstanceOf(ForbiddenError);
+    });
+  });
+
+  describe('GDPR erasure (PER-24)', () => {
+    it('purgePersona hard-deletes the row (row gone, not soft-deleted)', async () => {
+      const admin = await makeAdmin(80);
+      const owner = await makeUser(81);
+      const p = await createPersona(owner, { displayName: 'Erased Person', visibility: 'public' });
+
+      expect(await purgePersona(admin, p.uri)).toBe(true);
+
+      // Hard-deleted: no row at all, not even with deletedAt set.
+      const [row] = await db.select().from(personas).where(eq(personas.uri, p.uri)).limit(1);
+      expect(row).toBeUndefined();
+    });
+
+    it('purgePersona nulls the embedding before deletion (vector evicted)', async (ctx) => {
+      if (!isVectorAvailable()) return ctx.skip();
+      const admin = await makeAdmin(82);
+      const owner = await makeUser(83);
+      const p = await createPersona(owner, { displayName: 'Vector Erased', visibility: 'public' });
+      const vec = Array.from({ length: 1536 }, (_, k) => (k === 0 ? 1 : 0));
+      await updatePersonaEmbedding(owner, p.uri, vec);
+
+      // Similarity search must find the persona before purge.
+      const before = await searchPersonas(owner, {
+        query: '',
+        queryEmbedding: vec,
+        maxResults: 10,
+      });
+      expect(before.map((r) => r.uri)).toContain(p.uri);
+
+      expect(await purgePersona(admin, p.uri)).toBe(true);
+
+      // Similarity search must NOT find the purged persona.
+      const after = await searchPersonas(owner, { query: '', queryEmbedding: vec, maxResults: 10 });
+      expect(after.map((r) => r.uri)).not.toContain(p.uri);
+    });
+
+    it('purgePersona returns false for a non-existent URI', async () => {
+      const admin = await makeAdmin(84);
+      expect(await purgePersona(admin, 'nonexistent-per-24-uri')).toBe(false);
+    });
+
+    it('purgePersona throws ForbiddenError for a non-admin', async () => {
+      // nonAdminAbility returns true for any action except manage AdminSurface, which
+      // is too permissive for purge. Use a real-model-faithful mock: purge is not
+      // granted to ordinary users (only role=admin gets it via defineAbilitiesFor).
+      const userId = String(await insertUser(85));
+      const noPurge: P = { userId, ability: { can: (a) => a !== 'purge' }, networkDepth: 2 };
+      const p = await createPersona(noPurge, { displayName: 'Protected' });
+      await expect(purgePersona(noPurge, p.uri)).rejects.toBeInstanceOf(ForbiddenError);
+    });
+
+    it('deletePersona nulls the embedding on soft-delete', async (ctx) => {
+      // The embedding column is vector(1536) only when pgvector is available.
+      if (!isVectorAvailable()) return ctx.skip();
+      const owner = await makeUser(86);
+      const p = await createPersona(owner, { displayName: 'Soft Erased' });
+      const vec = Array.from({ length: 1536 }, (_, k) => (k === 0 ? 1 : 0));
+      await updatePersonaEmbedding(owner, p.uri, vec);
+
+      // Embedding is set before soft-delete.
+      const [before] = await db
+        .select({ embedding: personas.embedding })
+        .from(personas)
+        .where(eq(personas.uri, p.uri))
+        .limit(1);
+      expect(before.embedding).not.toBeNull();
+
+      await deletePersona(owner, p.uri);
+
+      // After soft-delete the embedding must be null — evicted from the vector index.
+      const [after] = await db
+        .select({ embedding: personas.embedding })
+        .from(personas)
+        .where(eq(personas.uri, p.uri))
+        .limit(1);
+      expect(after.embedding).toBeNull();
+    });
+
+    it('purgeUserCoachSessions hard-deletes all sessions including transcript', async () => {
+      const admin = await makeAdmin(87);
+      const owner = await makeUser(88);
+
+      await db.insert(coachSessions).values({
+        userId: BigInt(owner.userId as string),
+        kind: 'persona_coach',
+        status: 'completed',
+        transcript: [{ role: 'user', content: 'sensitive coaching data' }],
+        createdBy: 'test',
+        updatedBy: 'test',
+      });
+
+      const count = await purgeUserCoachSessions(admin, owner.userId as string);
+      expect(count).toBe(1);
+
+      const remaining = await db
+        .select({ id: coachSessions.id })
+        .from(coachSessions)
+        .where(eq(coachSessions.userId, BigInt(owner.userId as string)));
+      expect(remaining).toHaveLength(0);
+    });
+
+    it('purgeUserCoachSessions returns 0 when no sessions exist', async () => {
+      const admin = await makeAdmin(89);
+      const owner = await makeUser(90);
+      expect(await purgeUserCoachSessions(admin, owner.userId as string)).toBe(0);
+    });
+
+    it('purgeUserCoachSessions throws ForbiddenError for a non-admin', async () => {
+      // Use a real-model-faithful mock: purge is not granted to ordinary users.
+      const userId = String(await insertUser(91));
+      const noPurge: P = { userId, ability: { can: (a) => a !== 'purge' }, networkDepth: 2 };
+      await expect(purgeUserCoachSessions(noPurge, userId)).rejects.toBeInstanceOf(ForbiddenError);
     });
   });
 });
