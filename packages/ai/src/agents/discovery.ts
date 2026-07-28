@@ -84,7 +84,9 @@ export const discoveryAgent = new Agent({
   name: 'discovery',
   model: async () => getSetting('ai.discovery_model', 'openai/gpt-4o'),
   // Hard ceiling on agentic loops — prevents budget exhaustion from runaway
-  // multi-step sessions. Applied to both generate() and stream() paths.
+  // multi-step sessions. Applied to the vNext stream() path (used by the
+  // CopilotKit/AG-UI bridge) and both legacy generate/stream paths.
+  defaultOptions: { maxSteps: AGENT_MAX_STEPS },
   defaultGenerateOptionsLegacy: { maxSteps: AGENT_MAX_STEPS },
   defaultStreamOptionsLegacy: { maxSteps: AGENT_MAX_STEPS },
   instructions: `You are Personus Discovery. Help the user find people in their trust networks.
