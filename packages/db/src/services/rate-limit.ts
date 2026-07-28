@@ -1,5 +1,5 @@
 /**
- * DB-backed sliding-window rate limiter.
+ * DB-backed fixed-window rate limiter.
  *
  * Uses the `rate_limit_buckets` table (already in the schema) to track per-key
  * counters. A single `INSERT … ON CONFLICT DO UPDATE … RETURNING` atomically
@@ -8,6 +8,10 @@
  *
  * Public-endpoint callers pass a key derived from the client IP so each address
  * gets its own independent window.
+ *
+ * Note: this is a fixed-window counter, not a sliding window. Clients can burst
+ * up to `max` requests immediately after a window resets. A true sliding-window
+ * (e.g. with a request-log table or Redis sorted set) is a future upgrade.
  */
 
 import { db } from '../index';
@@ -30,7 +34,7 @@ export interface RateLimitResult {
  * Check (and record) one request against a rate-limit bucket.
  *
  * @param key       Unique bucket identifier (e.g. `"discover:1.2.3.4"`).
- * @param windowMs  Sliding-window duration in milliseconds.
+ * @param windowMs  Fixed-window duration in milliseconds.
  * @param max       Maximum allowed requests per window.
  */
 export async function checkRateLimit(

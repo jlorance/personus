@@ -47,7 +47,7 @@ export async function GET(req: Request) {
       {
         status: 429,
         headers: {
-          'Retry-After': String(rl.retryAfter ?? 60),
+          'Retry-After': String(rl.retryAfter ?? Math.ceil(RATE_LIMIT_WINDOW_MS / 1000)),
           'X-RateLimit-Remaining': '0',
         },
       },
