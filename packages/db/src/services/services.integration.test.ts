@@ -27,15 +27,22 @@ import {
 import {
   bindPlatformChannel,
   createCommunity,
+  createCommunityType,
   createContactRequest,
   createEndorsement,
   createPersona,
   createShadowPersona,
+  createTraitMetadata,
+  createTraitTaxonomy,
+  deleteCommunityType,
   deletePersona,
+  deleteTraitMetadata,
+  deleteTraitTaxonomy,
   ForbiddenError,
   getPersonaByUri,
   joinCommunity,
   leaveCommunity,
+  listAllPlatformChannelBindings,
   listCommunities,
   listEndorsementsForPersona,
   listInbox,
@@ -51,10 +58,13 @@ import {
   revokePlatformChannel,
   type ServicePrincipal,
   searchPersonas,
+  updateCommunityType,
   updatePersona,
   updatePersonaEmbedding,
   updatePersonaTraits,
   updateSystemSetting,
+  updateTraitMetadata,
+  updateTraitTaxonomy,
 } from './index';
 
 // A permissive NON-admin authenticated principal — the CASL gate is unit-tested
@@ -701,6 +711,159 @@ describe.skipIf(!hasTestDb)('service layer (integration)', () => {
       const userId = String(await insertUser(91));
       const noPurge: P = { userId, ability: { can: (a) => a !== 'purge' }, networkDepth: 2 };
       await expect(purgeUserCoachSessions(noPurge, userId)).rejects.toBeInstanceOf(ForbiddenError);
+    });
+  });
+
+  describe('reference data admin (PER-9)', () => {
+    it('admin creates, updates, and soft-deletes trait metadata', async () => {
+      const admin = await makeAdmin(200);
+
+      const created = await createTraitMetadata(admin, {
+        key: 'skills',
+        displayName: 'Skills',
+        category: 'professional',
+        dataType: 'array',
+        displayConfig: { widget: 'tags' },
+        editConfig: { multiline: false },
+      });
+      expect(created.key).toBe('skills');
+      expect(created.deletedAt).toBeNull();
+
+      const updated = await updateTraitMetadata(admin, created.id, { displayName: 'Core Skills' });
+      expect(updated?.displayName).toBe('Core Skills');
+
+      const deleted = await deleteTraitMetadata(admin, created.id);
+      expect(deleted).toBe(true);
+      // Soft-deleted — listTraitMetadata hides it
+      const list = await import('../services/reference').then((m) => m.listTraitMetadata());
+      expect(list.map((r) => String(r.id))).not.toContain(String(created.id));
+    });
+
+    it('refuses trait metadata mutations to a non-admin', async () => {
+      // A real non-admin user does not hold `manage TraitMetadata`. Use a
+      // faithful mock rather than the test file's permissive nonAdminAbility.
+      const userId = String(await insertUser(201));
+      const noManage: P = {
+        userId,
+        ability: { can: (a) => a !== 'manage' },
+        networkDepth: 2,
+      };
+      await expect(
+        createTraitMetadata(noManage, {
+          key: 'skills2',
+          displayName: 'Skills 2',
+          category: 'professional',
+          dataType: 'array',
+          displayConfig: {},
+          editConfig: {},
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+
+    it('admin creates, updates, and soft-deletes trait taxonomies', async () => {
+      const admin = await makeAdmin(202);
+
+      const created = await createTraitTaxonomy(admin, {
+        traitKey: 'skills',
+        taxonomySlug: 'engineering',
+        displayName: 'Engineering',
+        suggestedValues: ['TypeScript', 'Go'],
+      });
+      expect(created.taxonomySlug).toBe('engineering');
+      expect(created.deletedAt).toBeNull();
+
+      const updated = await updateTraitTaxonomy(admin, created.id, {
+        displayName: 'Software Engineering',
+      });
+      expect(updated?.displayName).toBe('Software Engineering');
+
+      const deleted = await deleteTraitTaxonomy(admin, created.id);
+      expect(deleted).toBe(true);
+    });
+
+    it('refuses trait taxonomy mutations to a non-admin', async () => {
+      const userId = String(await insertUser(203));
+      const noManage: P = {
+        userId,
+        ability: { can: (a) => a !== 'manage' },
+        networkDepth: 2,
+      };
+      await expect(
+        createTraitTaxonomy(noManage, {
+          traitKey: 'skills',
+          taxonomySlug: 'arts',
+          displayName: 'Arts',
+          suggestedValues: [],
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+
+    it('admin creates, updates, and soft-deletes community types', async () => {
+      const admin = await makeAdmin(204);
+
+      const created = await createCommunityType(admin, {
+        slug: 'professional-network',
+        name: 'Professional Network',
+        description: 'Career-focused community',
+      });
+      expect(created.slug).toBe('professional-network');
+      expect(created.isActive).toBe(true);
+
+      const updated = await updateCommunityType(admin, created.id, { name: 'Pro Network' });
+      expect(updated?.name).toBe('Pro Network');
+
+      const deleted = await deleteCommunityType(admin, created.id);
+      expect(deleted).toBe(true);
+    });
+
+    it('refuses community type mutations to a non-admin', async () => {
+      const userId = String(await insertUser(205));
+      const noManage: P = {
+        userId,
+        ability: { can: (a) => a !== 'manage' },
+        networkDepth: 2,
+      };
+      await expect(
+        createCommunityType(noManage, { slug: 'blocked', name: 'Blocked' }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+  });
+
+  describe('platform channels — cross-community admin listing (PER-9)', () => {
+    it('admin lists bindings across multiple communities', async () => {
+      const admin = await makeAdmin(210);
+
+      const fp1 = await createPersona(admin, { displayName: 'Guild A Lead' });
+      const c1 = await createCommunity(admin, {
+        name: 'Guild A',
+        foundingPersonaUri: fp1.uri,
+      });
+      const fp2 = await createPersona(admin, { displayName: 'Guild B Lead' });
+      const c2 = await createCommunity(admin, {
+        name: 'Guild B',
+        foundingPersonaUri: fp2.uri,
+      });
+
+      await bindPlatformChannel(admin, {
+        communityId: String(c1.id),
+        platform: 'slack',
+        externalRef: 'T-cross-1',
+      });
+      await bindPlatformChannel(admin, {
+        communityId: String(c2.id),
+        platform: 'discord',
+        externalRef: 'G-cross-2',
+      });
+
+      const all = await listAllPlatformChannelBindings(admin);
+      const refs = all.map((b) => b.externalRef);
+      expect(refs).toContain('T-cross-1');
+      expect(refs).toContain('G-cross-2');
+    });
+
+    it('refuses cross-community listing to a non-admin', async () => {
+      const user = await makeUser(211);
+      await expect(listAllPlatformChannelBindings(user)).rejects.toBeInstanceOf(ForbiddenError);
     });
   });
 });

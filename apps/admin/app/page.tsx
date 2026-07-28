@@ -33,6 +33,26 @@ export default async function AdminHome() {
           <strong>Feature flags</strong>
           <div className="desc">Toggle features on and off without a deploy.</div>
         </Link>
+        <Link href="/trait-metadata" className="card-link">
+          <strong>Trait metadata</strong>
+          <div className="desc">Manage display and edit configuration for persona trait keys.</div>
+        </Link>
+        <Link href="/taxonomy" className="card-link">
+          <strong>Trait taxonomies</strong>
+          <div className="desc">
+            Curate suggested-value sets per trait key for pickers and autocomplete.
+          </div>
+        </Link>
+        <Link href="/community-types" className="card-link">
+          <strong>Community types</strong>
+          <div className="desc">
+            Define the reference types that shape communities and their defaults.
+          </div>
+        </Link>
+        <Link href="/platform-channels" className="card-link">
+          <strong>Platform channels</strong>
+          <div className="desc">View and revoke bot bindings across all communities.</div>
+        </Link>
       </div>
     </main>
   );
