@@ -10,7 +10,7 @@
 
 import { db } from '../index';
 import { and, eq, isNull } from '../orm';
-import { communityMembers, platformChannelBindings } from '../schema';
+import { platformChannelBindings } from '../schema';
 import { memberRole } from './communities';
 import {
   ForbiddenError,
@@ -162,6 +162,31 @@ export async function revokePlatformChannel(
     })
     .where(eq(platformChannelBindings.id, binding.id));
   return true;
+}
+
+/**
+ * List ALL active platform-channel bindings across every community — for the
+ * admin control plane. Requires platform superuser (`manage AdminSurface`);
+ * community admins use `listPlatformChannels` scoped to their community.
+ */
+export async function listAllPlatformChannelBindings(
+  principal: ServicePrincipal,
+): Promise<BindingView[]> {
+  if (!isPlatformAdmin(principal)) throw new ForbiddenError();
+
+  const rows = await db
+    .select({
+      publicId: platformChannelBindings.publicId,
+      communityId: platformChannelBindings.communityId,
+      platform: platformChannelBindings.platform,
+      externalRef: platformChannelBindings.externalRef,
+      status: platformChannelBindings.status,
+    })
+    .from(platformChannelBindings)
+    .where(
+      and(eq(platformChannelBindings.status, 'active'), isNull(platformChannelBindings.deletedAt)),
+    );
+  return rows.map((r) => ({ ...r, communityId: String(r.communityId) }));
 }
 
 /** Resolve the community bound to a platform channel (for inbound webhooks). */

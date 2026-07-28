@@ -18,6 +18,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           </Link>
           <Link href="/settings">Settings</Link>
           <Link href="/flags">Feature flags</Link>
+          <Link href="/trait-metadata">Trait metadata</Link>
+          <Link href="/taxonomy">Taxonomies</Link>
+          <Link href="/community-types">Community types</Link>
+          <Link href="/platform-channels">Platform channels</Link>
         </nav>
         {children}
       </body>
