@@ -1,0 +1,56 @@
+# Curated nuclei template set for Personus (Vercel-hosted Next.js app).
+#
+# High-signal families for a bespoke SaaS app; excludes intrusive, DoS, and
+# fuzzing templates that produce noise without actionable findings.
+#
+# Families covered (maps to the four areas called out in PER-18):
+#   exposures     — .env leaks, source-map exposure, .git directory
+#   misconfig     — open redirects, misconfigured headers, etc.
+#   headers       — HTTP security-header checks (CSP, HSTS, X-Frame-Options …)
+#   ssl           — TLS/certificate issues (weak ciphers, expired certs, etc.)
+#
+# Reference: https://docs.projectdiscovery.io/tools/nuclei/running#config-file
+
+# Severities to scan (critical and high block the job; medium is reported only)
+severity:
+  - critical
+  - high
+  - medium
+
+# Curated tag set — matches nuclei-templates taxonomy
+tags:
+  # .env leaks, exposed source maps, .git directories
+  - exposure
+  - exposures
+  # Misconfigured security settings (open redirects, CORS, etc.)
+  - misconfig
+  - misconfiguration
+  # HTTP security headers (CSP, HSTS, X-Frame-Options, X-Content-Type-Options …)
+  - headers
+  # TLS/SSL certificate issues (weak ciphers, expired certs, missing HSTS …)
+  - ssl
+  # Subdomain takeover vectors
+  - takeover
+  # Default or weak credentials left on admin panels
+  - default-login
+  # Technology fingerprinting (used to correlate with CVE templates)
+  - tech
+
+# Tags that are never useful for a hosted Next.js product
+exclude-tags:
+  - dos
+  - fuzz
+  - intrusive
+
+# Scan tuning — conservative values suitable for a live preview or production URL
+rate-limit: 80
+timeout: 10
+retries: 1
+stats: true
+
+# Output formats written by nuclei; the workflow uploads these as artifacts and
+# pushes SARIF to the GitHub Security Code Scanning tab.
+json-export: nuclei.json
+# nuclei v3 writes one file per finding into a directory; specify a directory name
+markdown-export: nuclei-markdown
+sarif-export: nuclei.sarif

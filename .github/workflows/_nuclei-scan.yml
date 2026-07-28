@@ -1,12 +1,13 @@
 name: nuclei scan (reusable)
 
 # Reusable DAST scan of a single live URL. Called by security-dast.yml.
-# Scans a running deployment (no repo checkout needed) and:
-#   - uploads results to the Security > Code scanning tab (SARIF; no-op without
-#     GitHub Advanced Security on private repos — the step is non-fatal),
-#   - attaches raw JSON/markdown findings as a build artifact,
-#   - writes a human-readable report to the job summary,
-#   - fails the job when findings at `fail-on` severities are present.
+# Template selection lives in .github/nuclei-config.yaml (curated for a
+# Vercel-hosted Next.js app). This file owns the job plumbing: target
+# injection, artifact upload, SARIF upload, and the severity gate.
+#
+# Upgrade note: migrated from nuclei-action v2 (deprecated March 2026) to v3.
+# v3 uses `args` + `config-path` instead of the old `target`/`flags`/
+# `*-export` inputs — see https://github.com/projectdiscovery/nuclei-action.
 
 on:
   workflow_call:
@@ -15,20 +16,6 @@ on:
         description: "Target URL to scan"
         required: true
         type: string
-      flags:
-        description: "nuclei CLI flags (severity + curated template selection)"
-        required: false
-        type: string
-        # High-signal families for a Vercel-hosted Next.js app. Remove the
-        # `-tags ...` clause to run the full ruleset at these severities.
-        default: >-
-          -severity critical,high,medium
-          -tags cve,exposure,exposures,config,misconfig,misconfiguration,takeover,default-login,tech
-          -exclude-tags dos,fuzzing,intrusive
-          -rate-limit 80
-          -timeout 10
-          -retries 1
-          -stats
       fail-on:
         description: "Comma-separated severities that fail the job"
         required: false
@@ -43,6 +30,9 @@ jobs:
   scan:
     runs-on: ubuntu-latest
     steps:
+      # Required so config-path (.github/nuclei-config.yaml) is resolvable.
+      - uses: actions/checkout@v4
+
       - name: Compute target slug
         id: slug
         env:
@@ -53,14 +43,12 @@ jobs:
 
       - name: Nuclei scan
         id: nuclei
-        # Pin to a released SHA for supply-chain hygiene once you've chosen a version.
-        uses: projectdiscovery/nuclei-action@main
+        # Pinned to v3.1.0 (SHA) for supply-chain hygiene.
+        # Template selection and output paths come from .github/nuclei-config.yaml.
+        uses: projectdiscovery/nuclei-action@32a91c0da7be14c07b0ade6c14fa0f6e78d97c9c # v3.1.0
         with:
-          target: ${{ inputs.target }}
-          flags: ${{ inputs.flags }}
-          sarif-export: nuclei.sarif
-          json-export: nuclei.json
-          markdown-export: nuclei.md
+          args: -u ${{ inputs.target }}
+          config-path: .github/nuclei-config.yaml
 
       - name: Upload SARIF to code scanning
         if: always() && hashFiles('nuclei.sarif') != ''
@@ -71,13 +59,13 @@ jobs:
           category: nuclei-${{ steps.slug.outputs.value }}
 
       - name: Upload raw findings artifact
-        if: always() && (hashFiles('nuclei.json') != '' || hashFiles('nuclei.md') != '')
+        if: always() && (hashFiles('nuclei.json') != '' || hashFiles('nuclei-markdown/') != '')
         uses: actions/upload-artifact@v4
         with:
           name: nuclei-${{ steps.slug.outputs.value }}
           path: |
             nuclei.json
-            nuclei.md
+            nuclei-markdown/
             nuclei.sarif
           if-no-files-found: ignore
 
@@ -95,8 +83,8 @@ jobs:
             exit 0
           fi
 
-          if [ -s nuclei.md ]; then
-            cat nuclei.md >> "$GITHUB_STEP_SUMMARY"
+          if [ -d nuclei-markdown ] && [ -n "$(ls -A nuclei-markdown)" ]; then
+            cat nuclei-markdown/*.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
             echo >> "$GITHUB_STEP_SUMMARY"
           fi
 
