@@ -9,7 +9,7 @@
 import { getSystemPrincipal } from '@personus/auth/principal';
 import { embeddingsWorker } from '@personus/auth/system';
 import { db } from '@personus/db';
-import { isNull } from '@personus/db/orm';
+import { and, isNull } from '@personus/db/orm';
 import { personas } from '@personus/db/schema';
 import { updatePersonaEmbedding } from '@personus/db/services';
 import { env } from '@personus/env';
@@ -23,6 +23,9 @@ async function main(): Promise<void> {
   }
   const principal = getSystemPrincipal(embeddingsWorker);
 
+  // Guard deleted_at so a persona soft-deleted before embedding is never
+  // embedded after the fact — that would re-populate the vector index with a
+  // fingerprint the user expected to be erased (PER-24).
   const rows = await db
     .select({
       uri: personas.uri,
@@ -32,7 +35,7 @@ async function main(): Promise<void> {
       traits: personas.traits,
     })
     .from(personas)
-    .where(isNull(personas.embedding));
+    .where(and(isNull(personas.embedding), isNull(personas.deletedAt)));
 
   logger.info(`[embeddings] ${rows.length} personas to embed…`);
   let done = 0;

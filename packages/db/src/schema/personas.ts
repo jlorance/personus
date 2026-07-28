@@ -38,7 +38,12 @@ export const personas = pgTable(
     index('idx_personas_uri').on(table.uri),
     index('idx_personas_entity_type').on(table.entityType),
     index('idx_personas_traits').using('gin', table.traits),
-    index('idx_personas_embedding').using('ivfflat', table.embedding.op('vector_cosine_ops')),
+    // Partial filter aligns this index with idx_personas_active: tombstoned
+    // personas are excluded so their 1536-dim fingerprint is not reachable via
+    // similarity search after a soft-delete or purge (PER-24).
+    index('idx_personas_embedding')
+      .using('ivfflat', table.embedding.op('vector_cosine_ops'))
+      .where(sql`deleted_at IS NULL`),
     index('idx_personas_active').on(table.id).where(sql`deleted_at IS NULL`),
   ],
 );

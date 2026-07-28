@@ -221,6 +221,8 @@ export * from './endorsements';
 // modules (which import from here) are evaluated.
 export * from './gates';
 export * from './mutations';
+// personas exports: createPersona, listMyPersonas, deletePersona, purgePersona,
+// purgeUserCoachSessions
 export * from './personas';
 export * from './platform-channels';
 export * from './rate-limit';

@@ -1,12 +1,13 @@
 /**
- * Persona lifecycle — create / list-mine / soft-delete. Reads + updates live in
- * search.ts (getPersonaByUri) and index.ts (updatePersona/updatePersonaTraits).
+ * Persona lifecycle — create / list-mine / soft-delete / hard-delete (purge).
+ * Reads + updates live in search.ts (getPersonaByUri) and index.ts
+ * (updatePersona/updatePersonaTraits).
  */
 
 import { atomic } from '../atomic';
 import { db } from '../index';
 import { and, eq, isNull } from '../orm';
-import { contactRequests, personas } from '../schema';
+import { coachSessions, contactRequests, personas } from '../schema';
 import { publicId } from '../schema/_factory';
 import { slugifyName, toPersonaSummary } from './gates';
 import {
@@ -100,10 +101,13 @@ export async function deletePersona(principal: ServicePrincipal, uri: string): P
   // The soft-delete and the decline must land together. Split across two calls,
   // a failure between them produces exactly the state the comment below warns
   // about: requests stuck pending with no owner able to respond (PER-22).
+  // Null the embedding so the soft-deleted persona is evicted from the vector
+  // index immediately — the ivfflat index has no partial WHERE filter that
+  // would exclude it automatically (PER-24).
   await atomic((tx) => [
     tx
       .update(personas)
-      .set({ deletedAt: now, updatedBy: tag, updatedAt: now })
+      .set({ deletedAt: now, embedding: null, updatedBy: tag, updatedAt: now })
       .where(eq(personas.id, existing.id)),
     // Decline any pending introductions addressed to this persona so they aren't
     // wedged forever with no owner able to respond.
@@ -114,4 +118,61 @@ export async function deletePersona(principal: ServicePrincipal, uri: string): P
   ]);
 
   return true;
+}
+
+/**
+ * Hard-delete a persona (GDPR purge). Only platform admins may call this
+ * (`purge Persona` in CASL). Nulls the embedding before deletion so the
+ * 1536-dimensional fingerprint is evicted from the vector index before the
+ * row is hard-deleted (PER-24).
+ *
+ * FK cascades on hard-delete:
+ *   - endorsements.from_persona_uri / to_persona_uri → CASCADE (rows deleted)
+ *   - contact_requests.from_persona_uri / to_persona_uri → CASCADE (rows deleted)
+ *   - coach_sessions.persona_uri → SET NULL (session row kept; use
+ *     purgeUserCoachSessions to clear transcript data separately)
+ *
+ * Returns false when the URI does not exist (including previously hard-deleted).
+ */
+export async function purgePersona(principal: ServicePrincipal, uri: string): Promise<boolean> {
+  if (!principal.ability.can('purge', 'Persona')) throw new ForbiddenError();
+
+  // Include soft-deleted rows — a GDPR erasure request must reach tombstones.
+  const [existing] = await db
+    .select({ id: personas.id })
+    .from(personas)
+    .where(eq(personas.uri, uri))
+    .limit(1);
+  if (!existing) return false;
+
+  // Null the embedding before hard-deletion so the vector is evicted from the
+  // ivfflat index immediately, not deferred to a background VACUUM.
+  await db
+    .update(personas)
+    .set({ embedding: null, updatedAt: new Date(), updatedBy: principalTag(principal) })
+    .where(eq(personas.id, existing.id));
+
+  await db.delete(personas).where(eq(personas.id, existing.id));
+  return true;
+}
+
+/**
+ * Hard-delete all coach sessions for a user (GDPR purge of transcript data).
+ * Only platform admins may call this (`purge CoachSession` in CASL). The
+ * `transcript` JSONB column holds verbatim coaching conversations; hard-deletion
+ * is the only way to comply with a data-subject erasure request (PER-24).
+ *
+ * Returns the count of session rows deleted.
+ */
+export async function purgeUserCoachSessions(
+  principal: ServicePrincipal,
+  userId: string,
+): Promise<number> {
+  if (!principal.ability.can('purge', 'CoachSession')) throw new ForbiddenError();
+
+  const deleted = await db
+    .delete(coachSessions)
+    .where(eq(coachSessions.userId, BigInt(userId)))
+    .returning({ id: coachSessions.id });
+  return deleted.length;
 }
