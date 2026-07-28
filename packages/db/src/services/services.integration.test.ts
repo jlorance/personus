@@ -573,6 +573,58 @@ describe.skipIf(!hasTestDb)('service layer (integration)', () => {
       expect(await listPlatformChannels(outsider, String(community.id))).toHaveLength(0);
       expect(await listPlatformChannels(admin, String(community.id))).toHaveLength(1);
     });
+
+    // PER-30 AC-2: cross-community isolation — CASL grants manage PlatformChannel to
+    // any community admin, but the grant says nothing about WHICH community. The
+    // service-layer assertCommunityAdmin() is the scoping mechanism; these tests
+    // prove it holds. nonAdminAbility intentionally returns true for
+    // can('manage','PlatformChannel') to isolate the service gate from the CASL gate.
+    it('community-admin of A cannot bind a channel on community B (cross-community isolation)', async () => {
+      const adminA = await makeUser(300);
+      const paA = await createPersona(adminA, { displayName: 'Cross Admin A' });
+      await createCommunity(adminA, { name: 'Cross Community A', foundingPersonaUri: paA.uri });
+
+      const founderB = await makeUser(301);
+      const paB = await createPersona(founderB, { displayName: 'Cross Founder B' });
+      const communityB = await createCommunity(founderB, {
+        name: 'Cross Community B',
+        foundingPersonaUri: paB.uri,
+      });
+
+      // adminA is admin of community A (CASL grants manage PlatformChannel),
+      // but is not a member of community B at all. The service must deny this.
+      await expect(
+        bindPlatformChannel(adminA, {
+          communityId: String(communityB.id),
+          platform: 'slack',
+          externalRef: 'T-cross-bind',
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+
+    it('community-admin of A cannot revoke a channel bound to community B (cross-community isolation)', async () => {
+      const adminA = await makeUser(302);
+      const paA = await createPersona(adminA, { displayName: 'Cross Admin A2' });
+      await createCommunity(adminA, { name: 'Cross Community A2', foundingPersonaUri: paA.uri });
+
+      const founderB = await makeUser(303);
+      const paB = await createPersona(founderB, { displayName: 'Cross Founder B2' });
+      const communityB = await createCommunity(founderB, {
+        name: 'Cross Community B2',
+        foundingPersonaUri: paB.uri,
+      });
+      const binding = await bindPlatformChannel(founderB, {
+        communityId: String(communityB.id),
+        platform: 'discord',
+        externalRef: 'G-cross-revoke',
+      });
+
+      // adminA is admin of community A but has no membership in B.
+      // The service must deny the revoke.
+      await expect(revokePlatformChannel(adminA, binding.publicId)).rejects.toBeInstanceOf(
+        ForbiddenError,
+      );
+    });
   });
 
   describe('system settings (admin)', () => {

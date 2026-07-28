@@ -75,6 +75,23 @@
           }
         }
       }
+    },
+    {
+      "includes": ["packages/ai/src/agents/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "@personus/db": "Agent tools must not import the raw db client — route through principal-gated services from '@personus/db/services' so every DB access is ownership-checked. (authz chokepoint PER-30; add a service rather than bypassing)"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   ],
   "assist": { "enabled": true }

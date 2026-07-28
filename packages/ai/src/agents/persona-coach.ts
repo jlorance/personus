@@ -10,10 +10,12 @@
 import { Agent } from '@mastra/core/agent';
 import { createTool } from '@mastra/core/tools';
 import { AGENT_MAX_STEPS } from '@personus/constants';
-import { db } from '@personus/db';
-import { and, eq, isNull } from '@personus/db/orm';
-import { personas, traitTaxonomies } from '@personus/db/schema';
-import { updatePersona, updatePersonaTraits } from '@personus/db/services';
+import {
+  getPersonaByUri,
+  listTaxonomies,
+  updatePersona,
+  updatePersonaTraits,
+} from '@personus/db/services';
 import { getSetting } from '@personus/db/settings';
 import { z } from 'zod';
 import { calculateCompleteness } from '../completeness';
@@ -44,13 +46,11 @@ const updatePersonaFieldTool = createTool({
         if (field === 'headline' || field === 'location') {
           return updatePersona(principal, personaUri, { [field]: value });
         }
-        const [existing] = await db
-          .select({ traits: personas.traits })
-          .from(personas)
-          .where(and(eq(personas.uri, personaUri), isNull(personas.deletedAt)))
-          .limit(1);
-        if (!existing) return null;
-        const merged = { ...((existing.traits ?? {}) as Record<string, unknown>), [field]: value };
+        // Fetch current traits through the gated service — ownership is enforced
+        // by updatePersonaTraits; getPersonaByUri gives the current trait snapshot.
+        const persona = await getPersonaByUri(principal, personaUri);
+        if (!persona) return null;
+        const merged = { ...((persona.traits ?? {}) as Record<string, unknown>), [field]: value };
         return updatePersonaTraits(principal, personaUri, merged);
       })();
       if (!updated) return { success: false as const, error: 'Persona not found' };
@@ -64,10 +64,9 @@ const updatePersonaFieldTool = createTool({
       }
 
       const { score, breakdown, nextSuggestions } = await calculateCompleteness(updated);
-      await db
-        .update(personas)
-        .set({ completenessScore: score })
-        .where(eq(personas.id, updated.id));
+      // Route the score write through the gated service — completenessScore is in
+      // EDITABLE_PERSONA_FIELDS and ownership is re-checked by updatePersona.
+      await updatePersona(principal, personaUri, { completenessScore: score });
       return { success: true as const, field, completeness: score, breakdown, nextSuggestions };
     }),
 });
@@ -89,11 +88,9 @@ const getCompletenessTool = createTool({
   inputSchema: z.object({ personaUri: z.string() }),
   execute: async (inputData, ctx) =>
     runAuditedTool('get_completeness', ctx as never, inputData, async (principal) => {
-      const [persona] = await db
-        .select()
-        .from(personas)
-        .where(and(eq(personas.uri, inputData.personaUri), isNull(personas.deletedAt)))
-        .limit(1);
+      // getPersonaByUri is visibility-gated; the ownership check below is an
+      // extra defence-in-depth layer — the coach's completeness tool is owner-only.
+      const persona = await getPersonaByUri(principal, inputData.personaUri);
       if (!persona || String(persona.userId) !== principal.userId) {
         return { error: 'Persona not found' };
       }
@@ -109,10 +106,8 @@ const lookupSuggestionsTool = createTool({
   inputSchema: z.object({ traitKey: z.string(), query: z.string().optional() }),
   execute: async (inputData, ctx) =>
     runAuditedTool('lookup_suggestions', ctx as never, inputData, async () => {
-      const rows = await db
-        .select()
-        .from(traitTaxonomies)
-        .where(eq(traitTaxonomies.traitKey, inputData.traitKey));
+      // listTaxonomies filters soft-deleted rows; the raw query did not.
+      const rows = await listTaxonomies(inputData.traitKey);
       if (rows.length === 0)
         return { found: false, message: `No taxonomy for "${inputData.traitKey}"` };
       if (!inputData.query) {
