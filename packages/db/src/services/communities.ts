@@ -5,8 +5,8 @@
 
 import { atomic } from '../atomic';
 import { db } from '../index';
-import { and, asc, eq, isNull, sql } from '../orm';
-import { communities, communityMembers, personas } from '../schema';
+import { and, asc, desc, eq, isNull, sql } from '../orm';
+import { communities, communityMembers, endorsements, personas } from '../schema';
 import { slugifyName } from './gates';
 import {
   ForbiddenError,
@@ -313,4 +313,85 @@ export async function listCommunityMembers(
       ),
     )
     .orderBy(asc(personas.displayName));
+}
+
+/** One row of a community's featured-members surface. */
+export interface FeaturedMemberSummary extends CommunityMemberSummary {
+  /** Community-scoped endorsement count, used for ranking. */
+  endorsementCount: number;
+}
+
+/**
+ * Top-endorsed visible members of a community, capped at `limit` (default 6).
+ *
+ * All surfaces that display aggregated or highlighted member data MUST use this
+ * function rather than querying `community_members` directly. That keeps the
+ * `visible` filter in one place and prevents it from silently dropping on any
+ * given surface (PER-28 AC-2).
+ *
+ * Returns `[]` — never an error — for non-members, anonymous callers, and
+ * unknown slugs, matching `listCommunityMembers` for the same reasons.
+ */
+export async function getFeaturedMembers(
+  principal: ServicePrincipal,
+  slug: string,
+  limit = 6,
+): Promise<FeaturedMemberSummary[]> {
+  const [community] = await db
+    .select({ id: communities.id })
+    .from(communities)
+    .where(and(eq(communities.slug, slug), isNull(communities.deletedAt)))
+    .limit(1);
+  if (!community) return [];
+
+  if (!isPlatformAdmin(principal) && (await memberRole(principal, community.id)) === null) {
+    return [];
+  }
+
+  // Count active, non-deleted endorsements received by each persona.
+  // A left join keeps members with zero endorsements in the result — they
+  // appear at the bottom of the ranking, ordered alphabetically when counts tie.
+  //
+  // Note: endorsement count is not community-scoped for the MVP because
+  // createEndorsement does not yet record communityId. The filter is added here
+  // as soon as that field is reliably populated.
+  const endorsementCount = sql<number>`cast(count(${endorsements.id}) as int)`;
+
+  return await db
+    .select({
+      uri: personas.uri,
+      displayName: personas.displayName,
+      headline: personas.headline,
+      location: personas.location,
+      completenessScore: personas.completenessScore,
+      role: communityMembers.role,
+      endorsementCount,
+    })
+    .from(communityMembers)
+    .innerJoin(personas, eq(personas.id, communityMembers.personaId))
+    .leftJoin(
+      endorsements,
+      and(
+        eq(endorsements.toPersonaUri, personas.uri),
+        isNull(endorsements.deletedAt),
+        eq(endorsements.active, true),
+      ),
+    )
+    .where(
+      and(
+        eq(communityMembers.communityId, community.id),
+        eq(communityMembers.visible, true),
+        isNull(personas.deletedAt),
+      ),
+    )
+    .groupBy(
+      personas.uri,
+      personas.displayName,
+      personas.headline,
+      personas.location,
+      personas.completenessScore,
+      communityMembers.role,
+    )
+    .orderBy(desc(endorsementCount), asc(personas.displayName))
+    .limit(limit);
 }

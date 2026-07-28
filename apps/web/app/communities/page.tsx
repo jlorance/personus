@@ -1,4 +1,5 @@
 import { listCommunities, listCommunityTypes, listMyPersonas } from '@personus/db/services';
+import Link from 'next/link';
 import { SignedOut } from '@/components/signed-out';
 import { getPagePrincipal } from '@/lib/require-principal';
 import { createCommunityAction, joinCommunityAction, leaveCommunityAction } from './actions';
@@ -40,18 +41,33 @@ export default async function CommunitiesPage() {
                 <div key={c.slug} className="ledger-row">
                   <div className="ledger-row__idx">{String(i + 1).padStart(3, '0')}</div>
                   <div>
-                    <div className="ledger-row__name text-2xl">{c.name}</div>
+                    <div className="ledger-row__name text-2xl">
+                      <Link
+                        href={`/communities/${c.slug}/members`}
+                        className="hover:text-primary hover:underline underline-offset-4"
+                      >
+                        {c.name}
+                      </Link>
+                    </div>
                     <p className="ledger-row__cap">
                       {c.communityType} · {c.memberCount ?? 0} member
                       {(c.memberCount ?? 0) === 1 ? '' : 's'}
                     </p>
                   </div>
-                  <form action={leaveCommunityAction} className="tally">
-                    <input type="hidden" name="slug" value={c.slug} />
-                    <button type="submit" className="hover:text-destructive">
-                      leave
-                    </button>
-                  </form>
+                  <div className="tally flex items-center gap-4">
+                    <Link
+                      href={`/communities/${c.slug}/members`}
+                      className="font-mono text-xs uppercase tracking-[0.16em] text-muted-foreground hover:text-foreground"
+                    >
+                      members
+                    </Link>
+                    <form action={leaveCommunityAction}>
+                      <input type="hidden" name="slug" value={c.slug} />
+                      <button type="submit" className="hover:text-destructive">
+                        leave
+                      </button>
+                    </form>
+                  </div>
                 </div>
               ))
             )}

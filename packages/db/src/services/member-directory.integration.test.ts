@@ -10,12 +10,14 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { db } from '../index';
 import { and, eq } from '../orm';
-import { communities, communityMembers } from '../schema';
+import { communityMembers } from '../schema';
 import { hasTestDb, resetTables, setupTestDb, teardownTestDb } from '../test/harness';
 import {
   createCommunity,
+  createEndorsement,
   createPersona,
   deletePersona,
+  getFeaturedMembers,
   joinCommunity,
   listCommunityMembers,
   type ServicePrincipal,
@@ -201,5 +203,119 @@ describe.skipIf(!hasTestDb)('listCommunityMembers', () => {
     expect(rows).toHaveLength(2);
     // And the caller, being a member of `community` only, sees nothing of `other`.
     await expect(listCommunityMembers(member, other.community.slug)).resolves.toEqual([]);
+  });
+});
+
+// ─── getFeaturedMembers (PER-28) ──────────────────────────────────────────────
+//
+// Featured members are the top-endorsed visible members of a community, capped
+// at a small limit (default 6). AC-2 of PER-28 requires that this surface draws
+// from the same filtered set as `listCommunityMembers` — the `visible` flag is
+// never bypassed. A direct query against `community_members` could silently drop
+// the filter; these tests pin the contract so that cannot regress.
+
+describe.skipIf(!hasTestDb)('getFeaturedMembers', () => {
+  beforeAll(async () => {
+    await setupTestDb();
+  });
+  afterAll(async () => {
+    await teardownTestDb();
+  });
+  beforeEach(async () => {
+    await resetTables();
+  });
+
+  // Re-use the same per-suite counter so email addresses stay unique.
+  let seq = 0;
+  async function makeUser(): Promise<P> {
+    seq += 1;
+    const { users, userTraits } = await import('../schema');
+    const [u] = await db
+      .insert(users)
+      .values({
+        authSubjectId: `feat_sub_${seq}_${Date.now()}`,
+        email: `feat${seq}@x.com`,
+        createdBy: 'test',
+        updatedBy: 'test',
+      })
+      .returning();
+    await db.insert(userTraits).values({ userId: u.id, createdBy: 'test', updatedBy: 'test' });
+    return { userId: String(u.id), ability: nonAdminAbility, networkDepth: 2 };
+  }
+
+  async function seedCommunityFeat() {
+    const founder = await makeUser();
+    const fp = await createPersona(founder, { displayName: 'Founder F' });
+    const community = await createCommunity(founder, {
+      name: `FeatGuild ${seq}`,
+      foundingPersonaUri: fp.uri,
+    });
+    const member = await makeUser();
+    const mp = await createPersona(member, { displayName: 'Member F' });
+    await joinCommunity(member, community.slug, mp.uri);
+    return { founder, fp, community, member, mp };
+  }
+
+  async function setVisible(userId: string, communityId: bigint, visible: boolean) {
+    await db
+      .update(communityMembers)
+      .set({ visible })
+      .where(
+        and(
+          eq(communityMembers.userId, BigInt(userId)),
+          eq(communityMembers.communityId, communityId),
+        ),
+      );
+  }
+
+  it('excludes a member whose visible flag is false', async () => {
+    // THE test that must fail before `getFeaturedMembers` exists.
+    // PER-28 AC-2: the visible filter is never bypassed on this surface.
+    const { community, member, founder } = await seedCommunityFeat();
+    await setVisible(founder.userId as string, community.id, false);
+
+    const rows = await getFeaturedMembers(member, community.slug);
+
+    expect(rows.map((r) => r.displayName)).toEqual(['Member F']);
+  });
+
+  it('returns [] to a non-member, same as listCommunityMembers', async () => {
+    const { community } = await seedCommunityFeat();
+    const outsider = await makeUser();
+
+    await expect(getFeaturedMembers(outsider, community.slug)).resolves.toEqual([]);
+  });
+
+  it('returns [] for an unknown slug', async () => {
+    const { member } = await seedCommunityFeat();
+
+    await expect(getFeaturedMembers(member, 'no-such-slug')).resolves.toEqual([]);
+  });
+
+  it('orders by endorsement count descending', async () => {
+    const { community, member, fp, mp } = await seedCommunityFeat();
+
+    // Member endorses founder — founder gets 1 endorsement, member stays at 0.
+    await createEndorsement(member, {
+      fromPersonaUri: mp.uri,
+      toPersonaUri: fp.uri,
+      relationshipType: 'colleague',
+    });
+
+    const rows = await getFeaturedMembers(member, community.slug);
+
+    // Founder has 1 endorsement, member has 0 → founder appears first.
+    expect(rows[0]?.displayName).toBe('Founder F');
+    expect(rows[0]?.endorsementCount).toBe(1);
+    expect(rows[1]?.displayName).toBe('Member F');
+    expect(rows[1]?.endorsementCount).toBe(0);
+  });
+
+  it('respects the limit parameter', async () => {
+    const { community, member } = await seedCommunityFeat();
+    // Two members exist (founder + member). Limit to 1.
+    const rows = await getFeaturedMembers(member, community.slug, 1);
+
+    expect(rows).toHaveLength(1);
   });
 });
