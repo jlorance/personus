@@ -357,6 +357,27 @@ describe.skipIf(!hasTestDb)('service layer (integration)', () => {
   });
 
   describe('endorsements', () => {
+    it('defaults strength to "standard" when not specified (PER-12 reconciliation)', async () => {
+      // schema-spec.md §Endorsement documents strength default as 'standard'.
+      // Before PER-12 the service used 'moderate' — an unreconciled divergence.
+      const writer = await makeUser(400);
+      const pw = await createPersona(writer, { displayName: 'Strength Writer' });
+      const target = await makeUser(401);
+      const pt = await createPersona(target, {
+        displayName: 'Strength Target',
+        visibility: 'public',
+      });
+
+      const end = await createEndorsement(writer, {
+        fromPersonaUri: pw.uri,
+        toPersonaUri: pt.uri,
+        relationshipType: 'colleague',
+        // strength intentionally omitted — must default to 'standard'
+      });
+
+      expect(end.strength).toBe('standard');
+    });
+
     it('creates a public endorsement visible to anonymous callers', async () => {
       const a = await makeUser(20);
       const b = await makeUser(21);

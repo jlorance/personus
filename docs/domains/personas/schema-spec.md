@@ -19,7 +19,7 @@ The authenticated account. One per human.
 
 **Fields**
 - `id` — identifier (uuid)
-- `clerkUserId` — string, required, unique, indexed — external auth identifier from Clerk
+- `authSubjectId` — string, required, unique, indexed — provider-agnostic auth subject identifier (e.g. Clerk user id, WorkOS id). Named generically to preserve the AuthN-provider seam (`packages/auth`).
 - `email` — string, required — user's email (stored, not displayed in personas)
 - `did` — string, optional, unique — decentralized identifier (DID) for AT Protocol integration
 - `preferredLanguages` — array of string, optional — ISO language codes
@@ -35,9 +35,11 @@ The authenticated account. One per human.
 **Lifecycle:** soft delete on account deletion (via `deletedAt` not shown — deletion flow TBD per Personas PRD open decision). Cascades: UserTraits (deleted), Personas (deleted), Personas-as-writer Endorsements (preserved but marked).
 
 **Invariants**
-1. `clerkUserId` is immutable after creation (coupling to Clerk's identity graph).
+1. `authSubjectId` is immutable after creation (coupling to the identity provider's subject graph).
 2. `did` is optional but unique when set — a user may register a DID after account creation.
 3. `email` is never surfaced by any public Persona or MCP tool output.
+
+> **Reconciliation note (PER-12):** An earlier draft of this spec used the field name `clerkUserId`. The shipped column is `auth_subject_id` — a provider-agnostic identifier reflecting the pluggable AuthN seam in `packages/auth`. Physical truth: `packages/db/src/schema/users.ts`.
 
 ---
 
@@ -223,7 +225,7 @@ A positive trust signal written by one Persona about another Persona or ShadowPe
 - `fromPersonaUri` — reference to Persona, required, indexed — the writer's persona
 - `toPersonaUri` — reference to Persona, optional, indexed — target persona (exclusive with `toShadowPersonaId`)
 - `toShadowPersonaId` — reference to ShadowPersona, optional, indexed — target shadow (exclusive with `toPersonaUri`)
-- `communityId` — reference to Community (Communities area), required, indexed — every endorsement is community-scoped
+- `communityId` — reference to Community (Communities area), optional, indexed — the community context in which the endorsement was given. SET NULL when the community is deleted; the endorsement survives community closure. May be null for endorsements created outside a community surface.
 - `relationshipType` — enum [`coworker`, `client`, `collaborator`, `neighbor`, `friend`, `mentor`, `other`], required — declared relationship between writer and target
 - `endorsementContext` — array of string, optional, default `[]` — the specific trait keys the endorsement speaks to (each must reference a `TraitMetadata.key` with `isEndorsable=true`)
 - `strength` — enum [`standard`, `strong`], required, default `standard`
@@ -245,11 +247,13 @@ A positive trust signal written by one Persona about another Persona or ShadowPe
 **Invariants**
 1. **Positive-only.** No `rating` field. No `score`. No `complaint`. No `negative` flag. The schema shape itself enforces that endorsements cannot become reviews.
 2. **Writer is a persona, not a user.** This is the core unlinkability preservation — a user who writes an endorsement from their Professional persona cannot be cross-referenced to their other personas via endorsement history.
-3. **Community-scoped.** `communityId` is required. Every endorsement is tied to the community context in which it was given.
+3. **Community context is recorded but not required.** `communityId` is nullable. Endorsements should be given within a community context where possible, but the FK uses SET NULL — an endorsement survives if the community is later deleted.
 4. **Target xor.** Exactly one of `toPersonaUri` or `toShadowPersonaId` is set. Never both, never neither.
 5. **`endorsementContext` values must reference endorsable traits.** Each entry must correspond to a `TraitMetadata.key` with `isEndorsable=true`.
 6. **On target Persona deletion**, the Endorsement is preserved but the target reference becomes dangling; the UI handles this by rendering "endorsement of a deleted persona."
 7. **Written by a deleted persona:** preserved but marked inactive (`active=false`) so the trust signal is retained without exposing the deleted writer.
+
+> **Reconciliation note (PER-12):** An earlier draft stated `communityId` is "required". The shipped schema (`packages/db/src/schema/endorsements.ts`) has `communityId` nullable with `SET NULL` on community deletion. The `createEndorsement()` service (`packages/db/src/services/mutations.ts`) does not require a community context at the call site. Domain model invariant 4 has been corrected to match.
 
 ---
 
@@ -273,7 +277,7 @@ A mediated introduction request to a Persona. Routes through a ContactRelay — 
 - `status` — enum [`pending`, `delivered`, `accepted`, `declined`, `expired`], required, default `pending`, indexed
 - `respondedAt` — timestamp, optional — set when target responds
 - `responseNote` — string, optional — target's free-text response
-- `createdAt` — timestamp, generated, system (no `updatedAt` — see Invariants)
+- `createdAt`, `updatedAt` — timestamp, generated, system — `updatedAt` is present (via `baseFields`) and is updated when status changes; the immutability invariant applies at the application level, not the column level.
 - `expiresAt` — timestamp, optional — request window end
 
 **Relationships**
@@ -282,13 +286,15 @@ A mediated introduction request to a Persona. Routes through a ContactRelay — 
 - belongsTo `Community` (via `toCommunityId`) — optional, cross-area reference
 
 **Constraints**
-- `check: exactly one of (fromPersonaUri, fromAgentId, fromAnonymous) is set` — three sender modes, exclusive.
+- Exactly one of `(fromPersonaUri, fromAgentId, fromAnonymous)` must be set — three sender modes, mutually exclusive. Enforced at the application layer; no DB-level CHECK constraint is present in the shipped schema.
+
+> **Reconciliation note (PER-12):** The spec described a DB CHECK constraint for sender exclusivity. The shipped schema (`packages/db/src/schema/contact-requests.ts`) has no such constraint; the service layer enforces this rule at write time.
 
 **Lifecycle**
 ```
 pending → delivered → accepted | declined | expired
 ```
-No `updatedAt` column. Once responded, `respondedAt` + `responseNote` are set and the row is never modified again.
+Once responded, `respondedAt` + `responseNote` are set. Subsequent status changes are rejected at the service layer (idempotency guard).
 
 **Invariants**
 1. **Raw contact details never stored here.** The request routes through a `ContactRelay` (to be built per Personas PRD open decision). The adapter resolves the target's channel preferences and delivers; contact details live in User-level preferences, not on the request.

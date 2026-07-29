@@ -10,7 +10,7 @@ timestamp: 2026-02-23
 # Identity & Personas -- Persona Visibility
 
 > Date: 2026-02-23
-> Status: Draft
+> Status: Current
 > Depends on: `00-prd.md`, `01-persona-lifecycle.md`, `03-trait-metadata.md`, `docs/foundation/authorization.md`
 > Primary actors: User (authenticated persona owner), Visitor (unauthenticated or non-owner viewer), AI Agent (MCP consumer)
 
@@ -131,12 +131,12 @@ Currently the visibility select is an inline `<Select>` in `app/(dashboard)/pers
 
 - **User:** Any actor attempting to view a persona (anonymous, authenticated, community member, owner).
 - **Functional:** `getViewablePersona()` checks visibility via `canViewPersona()`. Public personas are visible to all. Authenticated personas require a logged-in user. Community personas require shared community membership (checked via `community_members` table). Private personas return null for non-owners. Owner always sees their own persona regardless of visibility.
-- **Technical:** Already implemented in `app/actions/personas.ts` (`getViewablePersona()`, lines 110-130) and `lib/auth/permissions.ts` (`canViewPersona()`, lines 217-269). The `canViewPersona` function:
+- **Technical:** Already implemented. `canViewPersona()` is a pure gate function in `packages/db/src/services/gates.ts` (not `lib/auth/permissions.ts`). The `getPersonaByUri()` service in `packages/db/src/services/search.ts` calls it after fetching the row. The `canViewPersona` function:
   1. Returns `true` for `public` visibility
   2. Returns `false` for unauthenticated viewers on non-public personas
   3. Returns `true` for `authenticated` visibility with any logged-in user
   4. Returns `false` for `private` visibility (ownership checked separately in `getViewablePersona`)
-  5. For `community`: queries `community_members` to find shared communities between viewer and persona
+  5. For `community`: queries `community_members` to find whether the viewer belongs to any community that the **persona** (not the persona's owner) is also a member of — persona-scoped, not owner-scoped
 - **Acceptance criteria:**
   - [ ] Anonymous user can view `public` personas but not `authenticated`/`community`/`private`
   - [ ] Authenticated user can view `public` and `authenticated` personas

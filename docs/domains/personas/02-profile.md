@@ -10,7 +10,7 @@ timestamp: 2026-02-24
 # Identity & Personas — Profile Management
 
 > Date: 2026-02-24
-> Status: Draft
+> Status: Current
 > Depends on: `00-prd.md`, `03-trait-metadata.md`, `09-editing-patterns.md`
 > Primary actors: User (Owner), AI Agent (Persona Coach)
 

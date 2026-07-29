@@ -10,7 +10,7 @@ timestamp: 2026-02-23
 # Identity & Personas -- Persona Lifecycle
 
 > Date: 2026-02-23
-> Status: Draft
+> Status: Current
 > Depends on: `00-prd.md`, `docs/foundation/data-model.md`, `docs/foundation/vision.md`, `docs/foundation/authorization.md`
 > Primary actors: User (authenticated persona owner), Visitor (unauthenticated or non-owner viewer), AI Agent (Persona Coach)
 
@@ -812,20 +812,22 @@ The current `components/delete-persona-button.tsx` (59 lines) has a Dialog with 
 
 ### 5.4 Deletion Behavior
 
+> **Reconciliation note (PER-12):** The cascade described below is the **intended future behavior**. The shipped `deletePersona` service (`packages/db/src/services/personas.ts`) implements only two atomic steps: (1) soft-delete the persona and null its embedding, (2) decline any pending contact requests addressed to the persona. Steps 1–4, 6–8, and 10 are unbuilt. The `getPersonaDeletionImpact()` action and the impact preview UI are also not yet implemented.
+
 **Impact preview:** When the delete dialog opens, it calls `getPersonaDeletionImpact(uri)` to fetch counts of affected data: endorsements received, endorsements given, community memberships, pending contact requests, shadow personas created. Zero counts omitted. If all zero: "This persona has no associated data."
 
 **Last persona warning:** If `isLastPersona: true`, extra warning: "This is your only persona. Deleting it will remove your public presence. Your traits will be preserved." Deletion still allowed.
 
-**Cascade (in a single DB transaction):**
+**Cascade (in a single DB transaction) — planned, not yet shipped:**
 1. Endorsements received (`toPersonaUri`): set `active = false`, null `toPersonaUri`
 2. Endorsements given (`fromPersonaUri`): set `active = false`
 3. Community memberships (`personaId`): delete rows
 4. Contact requests to (`toPersonaUri`): set `status = 'declined'`, `responseNote = 'Persona deleted'`
-5. Contact requests from (`fromPersonaUri`): null `fromPersonaUri`
-6. Shadow personas created by (`createdByPersonaUri`): null `createdByPersonaUri`
+5. Contact requests from (`fromPersonaUri`): null `fromPersonaUri` — **shipped**
+6. Shadow personas created by (`createdByPersonaUri`): null `createdByPersonaUri` — note: shipped schema uses CASCADE (shadow is deleted, not nulled) when creator's persona is hard-deleted
 7. Shadow personas claimed by (`claimedByPersonaUri`): null, reset `claimStatus = 'unclaimed'`
 8. Communities backed by (`backingPersonaUri`): null
-9. Delete persona row
+9. Soft-delete persona row (null embedding) — **shipped**
 10. Log activity event `persona_deleted`
 
 After deletion: redirect to `/personas`, toast: "Persona deleted".

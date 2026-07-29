@@ -180,7 +180,7 @@ export async function createEndorsement(
       toPersonaUri: input.toPersonaUri ?? null,
       toShadowPersonaId: input.toShadowPersonaId ? toBigId(input.toShadowPersonaId) : null,
       relationshipType: input.relationshipType,
-      strength: input.strength ?? 'moderate',
+      strength: input.strength ?? 'standard',
       testimonial: input.testimonial ?? null,
       createdBy: tag(principal),
       updatedBy: tag(principal),

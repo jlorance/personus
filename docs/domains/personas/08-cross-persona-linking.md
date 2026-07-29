@@ -10,7 +10,7 @@ timestamp: 2026-02-23
 # Identity & Personas -- Cross-Persona Linking
 
 > Date: 2026-02-23
-> Status: Draft
+> Status: Planned
 > Depends on: `00-prd.md`, `01-persona-lifecycle.md`, `04-persona-visibility.md`, `docs/foundation/authorization.md`, `docs/specs/communities/guilds-prd.md`
 > Primary actors: User (authenticated persona owner), Viewer (community member viewing linked personas), CO (community organizer/admin)
 
