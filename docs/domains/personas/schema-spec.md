@@ -195,7 +195,7 @@ A Persona-like placeholder created for a non-user, always within a community con
 - `createdAt`, `updatedAt` — timestamp, generated, system
 
 **Relationships**
-- belongsTo `Community` (via `communityId`) — cross-area reference
+- belongsTo `Community` (via `communityId`, optional) — cross-area reference; SET NULL on community deletion; may be null for endorsements given outside a community surface
 - belongsTo `Persona` (as creator, via `createdByPersonaUri`)
 - belongsTo `Persona` (as claimed result, via `claimedByPersonaUri`; set on claim)
 - hasMany `Endorsements` (as target, via `toShadowPersonaId`)
@@ -242,7 +242,7 @@ A positive trust signal written by one Persona about another Persona or ShadowPe
 **Constraints**
 - `check: (toPersonaUri IS NOT NULL) OR (toShadowPersonaId IS NOT NULL)` — exactly one target must be set (enforced as a CHECK constraint at the database level).
 
-**Lifecycle:** no update lifecycle beyond `active=true → active=false` (soft revoke). Endorsements are otherwise immutable. Hard delete only when the containing community is closed.
+**Lifecycle:** no update lifecycle beyond `active=true → active=false` (soft revoke). Endorsements are otherwise immutable. Community deletion sets `communityId` to null (SET NULL) but does not hard-delete the endorsement.
 
 **Invariants**
 1. **Positive-only.** No `rating` field. No `score`. No `complaint`. No `negative` flag. The schema shape itself enforces that endorsements cannot become reviews.
@@ -250,8 +250,8 @@ A positive trust signal written by one Persona about another Persona or ShadowPe
 3. **Community context is recorded but not required.** `communityId` is nullable. Endorsements should be given within a community context where possible, but the FK uses SET NULL — an endorsement survives if the community is later deleted.
 4. **Target xor.** Exactly one of `toPersonaUri` or `toShadowPersonaId` is set. Never both, never neither.
 5. **`endorsementContext` values must reference endorsable traits.** Each entry must correspond to a `TraitMetadata.key` with `isEndorsable=true`.
-6. **On target Persona deletion**, the Endorsement is preserved but the target reference becomes dangling; the UI handles this by rendering "endorsement of a deleted persona."
-7. **Written by a deleted persona:** preserved but marked inactive (`active=false`) so the trust signal is retained without exposing the deleted writer.
+6. **On target Persona soft-deletion** (`deletePersona`), the Endorsement is preserved; `toPersonaUri` still references the soft-deleted row. On target Persona hard-deletion (`purgePersona`), the Endorsement is cascade-deleted (`toPersonaUri` FK is `ON DELETE CASCADE`).
+7. **Endorsements written by a soft-deleted persona** (`deletePersona`) are preserved; `fromPersonaUri` still references the soft-deleted row. The shipped `deletePersona` service does not set `active=false` on written endorsements. On hard-deletion (`purgePersona`), written endorsements are cascade-deleted (`fromPersonaUri` FK is `ON DELETE CASCADE`).
 
 > **Reconciliation note (PER-12):** An earlier draft stated `communityId` is "required". The shipped schema (`packages/db/src/schema/endorsements.ts`) has `communityId` nullable with `SET NULL` on community deletion. The `createEndorsement()` service (`packages/db/src/services/mutations.ts`) does not require a community context at the call site. Domain model invariant 4 has been corrected to match.
 
@@ -313,7 +313,7 @@ Once responded, `respondedAt` + `responseNote` are set. Subsequent status change
 
 3. **Endorsement writer is a Persona, not a User.** The writer-side foreign key is `fromPersonaUri`, not a User reference. This preserves unlinkability across personas written from different facets of the same user's identity.
 
-4. **Community scoping for endorsements and shadows.** Every Endorsement and every ShadowPersona has a non-null `communityId`. There is no "global" endorsement or shadow. Discovery surfaces may project these into non-community contexts but the data is always attached to a community.
+4. **Community scoping for shadows; optional for endorsements.** Every ShadowPersona has a non-null `communityId` — there is no "global" shadow. Endorsements record the community context where they were given, but `communityId` is nullable (SET NULL when the community is deleted). An endorsement may have a null `communityId` if created outside a community surface or after the originating community was deleted.
 
 5. **Contact channel indirection.** ContactRequest never stores raw contact details. The `ContactRelay` abstraction owns channel resolution and delivery.
 
