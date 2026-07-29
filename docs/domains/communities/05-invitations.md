@@ -10,11 +10,15 @@ timestamp: 2026-02-23
 # Communities — Invitations
 
 > Date: 2026-02-23
-> Status: Draft
+> Status: Draft (planned)
 > Depends on: `00-prd.md`, `02-membership.md`
 > Primary actor: Community Organizer (CO)
 
 How COs grow their communities. Covers invite links, invite codes, direct invitations, invite tracking, and the onboarding flow for people arriving via invite.
+
+> **What shipped (PER-8, Done):** The minimal token-based invitation flow for `invite_only` communities is live. An admin calls `createInvitation(principal, slug)` to mint a single-use `inv_*` token; the invitee claims it with `claimInvitation(principal, token, personaUri)` to join. Admin UI at `/communities/[slug]/requests`. Schema: `community_invitations` table. This is narrower than the full invitation system this spec describes (no shareable links, no email delivery, no per-link usage limits or expiry UI).
+>
+> The richer invitation system below — reusable links, email delivery, invite tracking dashboard — is `status: planned`.
 
 ---
 

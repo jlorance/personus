@@ -180,9 +180,9 @@ If the community has enabled a public directory (`publicPresence.level: 'full'` 
 
 **Default:** Off. Members must actively opt in.
 
-**Stored as:** `community_members.directoryOptIn` boolean (default `false`).
+**Current implementation:** The shipped `community_members.visible` boolean (default `true`) controls whether a member appears in the internal browsable directory. Members toggle it via `setMemberVisibility`. The `directoryOptIn` field for a separate public-directory opt-in is **not yet implemented** — the public directory feature (§3.2.3 of `01-community-lifecycle.md`) is planned but not shipped.
 
-Members can change this at any time from their member settings (see §6.1).
+Members can change their internal directory visibility at any time from their member settings (see §6.1).
 
 The visible fields shown in the preview come from the community's `publicPresence.directory.visibleFields` — the CO controls what appears publicly, the member controls whether they appear at all.
 
@@ -190,35 +190,43 @@ The visible fields shown in the preview come from the community's `publicPresenc
 
 ## 3. Join Request Schema
 
-For communities with approval-required join policy:
+For communities with approval-required join policy (shipped in PER-8, physical schema in `packages/db/src/schema/communities.ts`):
 
 ```typescript
-// lib/db/schema/communities.ts (addition)
+// packages/db/src/schema/communities.ts — actual shipped schema
 export const communityJoinRequests = pgTable('community_join_requests', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  communityId: uuid('community_id')
-    .notNull()
-    .references(() => communities.id, { onDelete: 'cascade' }),
-  userId: uuid('user_id')
-    .notNull()
-    .references(() => users.id),
-  personaId: uuid('persona_id')
-    .notNull()
-    .references(() => personas.id),
+  // baseFields('cjr'): bigserial id, publicId (cjr_*), audit cols, deletedAt soft-delete
+  ...baseFields('cjr'),
+  communityId: bigint('community_id', { mode: 'bigint' })
+    .references(() => communities.id, { onDelete: 'cascade' })
+    .notNull(),
+  requestingUserId: bigint('requesting_user_id', { mode: 'bigint' })
+    .references(() => users.id, { onDelete: 'cascade' })
+    .notNull(),
+  requestingPersonaId: bigint('requesting_persona_id', { mode: 'bigint' })
+    .references(() => personas.id, { onDelete: 'cascade' })
+    .notNull(),
   status: text('status').notNull().default('pending'), // 'pending' | 'approved' | 'declined'
-  message: text('message'),                             // "Why I want to join"
-  memberTraits: jsonb('member_traits').notNull().default('{}'),
-  reviewedByUserId: uuid('reviewed_by_user_id').references(() => users.id),
-  reviewNote: text('review_note'),                      // CO's note (e.g., decline reason)
-  requestedAt: timestamp('requested_at').defaultNow().notNull(),
-  reviewedAt: timestamp('reviewed_at'),
+  decisionUserId: bigint('decision_user_id', { mode: 'bigint' }).references(() => users.id, {
+    onDelete: 'set null',
+  }),
+  message: text('message'),  // "Why I want to join" — optional
 }, (table) => [
-  index('idx_join_requests_community').on(table.communityId),
-  index('idx_join_requests_user').on(table.userId),
-  index('idx_join_requests_status').on(table.status),
-  unique('uq_join_requests_user_community').on(table.userId, table.communityId),
+  index('idx_cjr_community').on(table.communityId),
+  index('idx_cjr_requesting_user').on(table.requestingUserId),
+  index('idx_cjr_status').on(table.status),
+  index('idx_cjr_active').on(table.id).where(sql`deleted_at IS NULL`),
 ]);
 ```
+
+**Differences from the original design:**
+- Field names use `requestingUserId` / `requestingPersonaId` (not `userId` / `personaId`) to avoid ambiguity.
+- `decisionUserId` (not `reviewedByUserId`) — who approved or declined.
+- No `memberTraits` column — member traits are set at membership creation time, not stored on the request.
+- No `reviewNote` — decline reason is delivered via notification, not persisted.
+- No separate `requestedAt` / `reviewedAt` — creation and update timestamps come from `baseFields`.
+- Soft-delete via `deletedAt` from `baseFields` (not a hard delete).
+- No `unique(userId, communityId)` constraint — idempotency is handled in the service layer by checking for an existing `pending` row, not by a DB constraint.
 
 ---
 
@@ -427,16 +435,16 @@ Community dashboard → Settings (or profile icon → Member Settings)
 └─────────────────────────────────────────────────────────┘
 ```
 
-**Server action:**
+**Server action (shipped):**
 
 ```typescript
-updateDirectoryOptIn(input: {
-  communityId: string;
-  optIn: boolean;
-}): Promise<void>
-// Sets community_members.directoryOptIn for the current user.
-// Fails if community doesn't have public directory enabled.
+setMemberVisibility(principal, slug, visible)
+// Toggles community_members.visible for the current user — controls
+// whether they appear in the internal browsable directory.
+// Throws ForbiddenError if the caller is not a member of the community.
 ```
+
+**Planned (not yet shipped):** A separate `updateDirectoryOptIn` action to control `community_members.directoryOptIn` for the public member directory — dependent on the public directory feature (`01-community-lifecycle.md` §3.2.3).
 
 ---
 
@@ -481,13 +489,11 @@ joinCommunitySchema = z.object({
   communityId: z.string().uuid(),
   personaId: z.string().uuid(),
   memberTraits: z.record(z.unknown()).optional(),
-  directoryOptIn: z.boolean().optional(),
+  // directoryOptIn: planned — not yet implemented
 });
 
-updateDirectoryOptInSchema = z.object({
-  communityId: z.string().uuid(),
-  optIn: z.boolean(),
-});
+// Planned (not shipped): updateDirectoryOptInSchema for public directory opt-in
+// Current: visibility toggle is handled by setMemberVisibility (no Zod schema; slug + bool)
 
 joinRequestSchema = z.object({
   communityId: z.string().uuid(),
@@ -536,9 +542,8 @@ switchPersonaSchema = z.object({
 - Steward limit: rejects promotion when at tier limit
 - Member traits: validates against community's memberTraitSchema
 - Duplicate membership: rejects if user already has active membership in community
-- Directory opt-in: sets `directoryOptIn` on membership when community has public directory
-- Directory opt-in: ignored when community has no public directory
-- `updateDirectoryOptIn`: toggles opt-in, fails if no public directory
+- `setMemberVisibility`: toggles `visible` on member row, throws ForbiddenError for non-members
+- Public directory opt-in (`directoryOptIn`): planned, not yet testable
 
 ### Integration Tests
 
