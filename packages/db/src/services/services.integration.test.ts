@@ -25,15 +25,19 @@ import {
   teardownTestDb,
 } from '../test/harness';
 import {
+  approveJoinRequest,
   bindPlatformChannel,
+  claimInvitation,
   createCommunity,
   createCommunityType,
   createContactRequest,
   createEndorsement,
+  createInvitation,
   createPersona,
   createShadowPersona,
   createTraitMetadata,
   createTraitTaxonomy,
+  declineJoinRequest,
   deleteCommunityType,
   deletePersona,
   deleteTraitMetadata,
@@ -44,14 +48,17 @@ import {
   leaveCommunity,
   listAllPlatformChannelBindings,
   listCommunities,
+  listCommunityMembers,
   listEndorsementsForPersona,
   listInbox,
+  listJoinRequests,
   listMyPersonas,
   listPlatformChannels,
   listSystemSettings,
   NotFoundError,
   purgePersona,
   purgeUserCoachSessions,
+  requestToJoin,
   resolveBoundCommunity,
   respondToContact,
   retractEndorsement,
@@ -916,6 +923,248 @@ describe.skipIf(!hasTestDb)('service layer (integration)', () => {
     it('refuses cross-community listing to a non-admin', async () => {
       const user = await makeUser(211);
       await expect(listAllPlatformChannelBindings(user)).rejects.toBeInstanceOf(ForbiddenError);
+    });
+  });
+
+  describe('join request and invitation flows (PER-8)', () => {
+    it('requestToJoin creates a pending join request for an approval community', async () => {
+      const founder = await makeUser(300);
+      const fp = await createPersona(founder, { displayName: 'Approval Lead' });
+      const c = await createCommunity(founder, {
+        name: 'Approval Guild',
+        foundingPersonaUri: fp.uri,
+      });
+      await db
+        .update(communities)
+        .set({ joinPolicy: 'approval' })
+        .where(eq(communities.slug, c.slug));
+
+      const joiner = await makeUser(301);
+      const jp = await createPersona(joiner, { displayName: 'Hopeful Member' });
+
+      const requestId = await requestToJoin(joiner, c.slug, jp.uri);
+      expect(requestId).toMatch(/^cjr_/);
+
+      // Membership must NOT exist yet — request is still pending.
+      const members = await listCommunityMembers(founder, c.slug);
+      expect(members.map((m) => m.uri)).not.toContain(jp.uri);
+    });
+
+    it('requestToJoin is idempotent — a second call returns the same publicId', async () => {
+      const founder = await makeUser(302);
+      const fp = await createPersona(founder, { displayName: 'Idem Lead' });
+      const c = await createCommunity(founder, { name: 'Idem Guild', foundingPersonaUri: fp.uri });
+      await db
+        .update(communities)
+        .set({ joinPolicy: 'approval' })
+        .where(eq(communities.slug, c.slug));
+
+      const joiner = await makeUser(303);
+      const jp = await createPersona(joiner, { displayName: 'Idem Joiner' });
+
+      const first = await requestToJoin(joiner, c.slug, jp.uri);
+      const second = await requestToJoin(joiner, c.slug, jp.uri);
+      expect(second).toBe(first);
+    });
+
+    it('requestToJoin throws ForbiddenError for a non-approval community', async () => {
+      const founder = await makeUser(304);
+      const fp = await createPersona(founder, { displayName: 'Open Lead' });
+      const c = await createCommunity(founder, {
+        name: 'Open Guild',
+        foundingPersonaUri: fp.uri,
+      });
+      // joinPolicy is 'open' by default
+      const joiner = await makeUser(305);
+      const jp = await createPersona(joiner, { displayName: 'Direct Joiner' });
+      await expect(requestToJoin(joiner, c.slug, jp.uri)).rejects.toBeInstanceOf(ForbiddenError);
+    });
+
+    it('approveJoinRequest creates membership and the requester becomes a member', async () => {
+      const founder = await makeUser(306);
+      const fp = await createPersona(founder, { displayName: 'Approve Lead' });
+      const c = await createCommunity(founder, {
+        name: 'Approve Guild',
+        foundingPersonaUri: fp.uri,
+      });
+      await db
+        .update(communities)
+        .set({ joinPolicy: 'approval' })
+        .where(eq(communities.slug, c.slug));
+
+      const joiner = await makeUser(307);
+      const jp = await createPersona(joiner, { displayName: 'Pending Joiner' });
+      const reqId = await requestToJoin(joiner, c.slug, jp.uri);
+
+      // Founder is the community admin — they approve.
+      await approveJoinRequest(founder, reqId);
+
+      const members = await listCommunityMembers(founder, c.slug);
+      expect(members.map((m) => m.uri)).toContain(jp.uri);
+
+      // memberCount incremented.
+      const [updated] = await db
+        .select({ memberCount: communities.memberCount })
+        .from(communities)
+        .where(eq(communities.slug, c.slug));
+      expect(updated.memberCount).toBe(2);
+    });
+
+    it('declineJoinRequest marks the request declined and does not create membership', async () => {
+      const founder = await makeUser(308);
+      const fp = await createPersona(founder, { displayName: 'Decline Lead' });
+      const c = await createCommunity(founder, {
+        name: 'Decline Guild',
+        foundingPersonaUri: fp.uri,
+      });
+      await db
+        .update(communities)
+        .set({ joinPolicy: 'approval' })
+        .where(eq(communities.slug, c.slug));
+
+      const joiner = await makeUser(309);
+      const jp = await createPersona(joiner, { displayName: 'Declined Joiner' });
+      const reqId = await requestToJoin(joiner, c.slug, jp.uri);
+
+      await declineJoinRequest(founder, reqId);
+
+      const members = await listCommunityMembers(founder, c.slug);
+      expect(members.map((m) => m.uri)).not.toContain(jp.uri);
+    });
+
+    it('listJoinRequests returns only pending requests for the admin', async () => {
+      const founder = await makeUser(310);
+      const fp = await createPersona(founder, { displayName: 'List Lead' });
+      const c = await createCommunity(founder, { name: 'List Guild', foundingPersonaUri: fp.uri });
+      await db
+        .update(communities)
+        .set({ joinPolicy: 'approval' })
+        .where(eq(communities.slug, c.slug));
+
+      const j1 = await makeUser(311);
+      const p1 = await createPersona(j1, { displayName: 'Requester A' });
+      const j2 = await makeUser(312);
+      const p2 = await createPersona(j2, { displayName: 'Requester B' });
+
+      const r1 = await requestToJoin(j1, c.slug, p1.uri);
+      await requestToJoin(j2, c.slug, p2.uri);
+
+      const pending = await listJoinRequests(founder, c.slug);
+      expect(pending).toHaveLength(2);
+
+      // Approve one; the list should shrink.
+      await approveJoinRequest(founder, r1);
+      const after = await listJoinRequests(founder, c.slug);
+      expect(after).toHaveLength(1);
+      expect(after[0].personaUri).toBe(p2.uri);
+    });
+
+    it('listJoinRequests throws ForbiddenError for a non-admin member', async () => {
+      const founder = await makeUser(313);
+      const fp = await createPersona(founder, { displayName: 'Guard Lead' });
+      const c = await createCommunity(founder, {
+        name: 'Guard Guild',
+        foundingPersonaUri: fp.uri,
+      });
+      // member joins as a regular member
+      const member = await makeUser(314);
+      const mp = await createPersona(member, { displayName: 'Guard Member' });
+      await db.update(communities).set({ joinPolicy: 'open' }).where(eq(communities.slug, c.slug));
+      await joinCommunity(member, c.slug, mp.uri);
+      // Now set to approval so it's relevant
+      await db
+        .update(communities)
+        .set({ joinPolicy: 'approval' })
+        .where(eq(communities.slug, c.slug));
+      await expect(listJoinRequests(member, c.slug)).rejects.toBeInstanceOf(ForbiddenError);
+    });
+
+    it('createInvitation returns a token and claimInvitation creates membership', async () => {
+      const founder = await makeUser(315);
+      const fp = await createPersona(founder, { displayName: 'Invite Lead' });
+      const c = await createCommunity(founder, {
+        name: 'Invite Guild',
+        foundingPersonaUri: fp.uri,
+      });
+      await db
+        .update(communities)
+        .set({ joinPolicy: 'invite_only' })
+        .where(eq(communities.slug, c.slug));
+
+      const token = await createInvitation(founder, c.slug);
+      expect(token).toMatch(/^inv_/);
+
+      const invitee = await makeUser(316);
+      const ip = await createPersona(invitee, { displayName: 'Invitee' });
+      await claimInvitation(invitee, token, ip.uri);
+
+      const members = await listCommunityMembers(founder, c.slug);
+      expect(members.map((m) => m.uri)).toContain(ip.uri);
+
+      // memberCount incremented.
+      const [updated] = await db
+        .select({ memberCount: communities.memberCount })
+        .from(communities)
+        .where(eq(communities.slug, c.slug));
+      expect(updated.memberCount).toBe(2);
+    });
+
+    it('claimInvitation throws ForbiddenError when the token is already claimed', async () => {
+      const founder = await makeUser(317);
+      const fp = await createPersona(founder, { displayName: 'Duplicate Lead' });
+      const c = await createCommunity(founder, {
+        name: 'Duplicate Guild',
+        foundingPersonaUri: fp.uri,
+      });
+      await db
+        .update(communities)
+        .set({ joinPolicy: 'invite_only' })
+        .where(eq(communities.slug, c.slug));
+
+      const token = await createInvitation(founder, c.slug);
+
+      const first = await makeUser(318);
+      const p1 = await createPersona(first, { displayName: 'First Claimer' });
+      await claimInvitation(first, token, p1.uri);
+
+      const second = await makeUser(319);
+      const p2 = await createPersona(second, { displayName: 'Second Claimer' });
+      await expect(claimInvitation(second, token, p2.uri)).rejects.toBeInstanceOf(ForbiddenError);
+    });
+
+    it('claimInvitation throws NotFoundError for an unknown token', async () => {
+      const user = await makeUser(320);
+      const p = await createPersona(user, { displayName: 'Bad Token' });
+      await expect(claimInvitation(user, 'inv_notarealtoken12345', p.uri)).rejects.toBeInstanceOf(
+        NotFoundError,
+      );
+    });
+
+    it('createInvitation throws ForbiddenError for a non-invite_only community', async () => {
+      const founder = await makeUser(321);
+      const fp = await createPersona(founder, { displayName: 'Open Only Lead' });
+      const c = await createCommunity(founder, {
+        name: 'Open Only Guild',
+        foundingPersonaUri: fp.uri,
+      });
+      // Default joinPolicy is 'open'
+      await expect(createInvitation(founder, c.slug)).rejects.toBeInstanceOf(ForbiddenError);
+    });
+
+    it('open community self-service join still works after PER-8 changes', async () => {
+      const founder = await makeUser(322);
+      const fp = await createPersona(founder, { displayName: 'Open Preserved Lead' });
+      const c = await createCommunity(founder, {
+        name: 'Open Preserved Guild',
+        foundingPersonaUri: fp.uri,
+      });
+
+      const joiner = await makeUser(323);
+      const jp = await createPersona(joiner, { displayName: 'Open Preserved Joiner' });
+      await joinCommunity(joiner, c.slug, jp.uri);
+
+      const members = await listCommunityMembers(founder, c.slug);
+      expect(members.map((m) => m.uri)).toContain(jp.uri);
     });
   });
 });

@@ -55,6 +55,8 @@ const TABLES = [
   'endorsements',
   'communities',
   'community_members',
+  'community_join_requests',
+  'community_invitations',
   'community_types',
   'contact_requests',
   'coach_sessions',

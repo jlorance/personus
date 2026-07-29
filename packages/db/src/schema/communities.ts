@@ -112,3 +112,76 @@ export type Community = typeof communities.$inferSelect;
 export type NewCommunity = typeof communities.$inferInsert;
 export type CommunityMember = typeof communityMembers.$inferSelect;
 export type NewCommunityMember = typeof communityMembers.$inferInsert;
+
+/**
+ * Community join requests — created when a user requests to join an `approval`-
+ * gated community. An admin approves or declines; approval creates the membership.
+ * Uses baseFields for a public_id (cjr_*) and soft-delete tombstone column.
+ */
+export const communityJoinRequests = pgTable(
+  'community_join_requests',
+  {
+    ...baseFields('cjr'),
+    communityId: bigint('community_id', { mode: 'bigint' })
+      .references(() => communities.id, { onDelete: 'cascade' })
+      .notNull(),
+    requestingUserId: bigint('requesting_user_id', { mode: 'bigint' })
+      .references(() => users.id, { onDelete: 'cascade' })
+      .notNull(),
+    requestingPersonaId: bigint('requesting_persona_id', { mode: 'bigint' })
+      .references(() => personas.id, { onDelete: 'cascade' })
+      .notNull(),
+    // 'pending' | 'approved' | 'declined'
+    status: text('status').notNull().default('pending'),
+    decisionUserId: bigint('decision_user_id', { mode: 'bigint' }).references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    message: text('message'),
+  },
+  (table) => [
+    index('idx_cjr_community').on(table.communityId),
+    index('idx_cjr_requesting_user').on(table.requestingUserId),
+    index('idx_cjr_status').on(table.status),
+    index('idx_cjr_active').on(table.id).where(sql`deleted_at IS NULL`),
+  ],
+);
+
+/**
+ * Community invitations — an admin creates a token-based invitation for an
+ * `invite_only` community. The invitee presents the token to claim membership.
+ * Uses baseFields for a public_id (cinv_*) and soft-delete tombstone column.
+ */
+export const communityInvitations = pgTable(
+  'community_invitations',
+  {
+    ...baseFields('ci'),
+    communityId: bigint('community_id', { mode: 'bigint' })
+      .references(() => communities.id, { onDelete: 'cascade' })
+      .notNull(),
+    // The admin who created the invitation.
+    inviterUserId: bigint('inviter_user_id', { mode: 'bigint' })
+      .references(() => users.id, { onDelete: 'cascade' })
+      .notNull(),
+    // Opaque token the invitee presents to claim membership. `inv_<nanoid17>`.
+    token: text('token').notNull().unique(),
+    claimedByUserId: bigint('claimed_by_user_id', { mode: 'bigint' }).references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    claimedByPersonaId: bigint('claimed_by_persona_id', { mode: 'bigint' }).references(
+      () => personas.id,
+      { onDelete: 'set null' },
+    ),
+    claimedAt: timestamp('claimed_at', { withTimezone: true }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('idx_cinv_community').on(table.communityId),
+    index('idx_cinv_token').on(table.token),
+    index('idx_cinv_active').on(table.id).where(sql`deleted_at IS NULL`),
+  ],
+);
+
+export type CommunityJoinRequest = typeof communityJoinRequests.$inferSelect;
+export type NewCommunityJoinRequest = typeof communityJoinRequests.$inferInsert;
+export type CommunityInvitation = typeof communityInvitations.$inferSelect;
+export type NewCommunityInvitation = typeof communityInvitations.$inferInsert;
