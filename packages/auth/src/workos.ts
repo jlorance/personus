@@ -42,4 +42,7 @@ export const workosServerAuth: ServerAuth = {
   async currentUser() {
     return null;
   },
+  async verifyBearerToken(_token: string): Promise<string | null> {
+    return null; // not implemented — see workos.ts header for implementation guide
+  },
 };

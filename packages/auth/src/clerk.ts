@@ -115,4 +115,15 @@ export const clerkServerAuth: ServerAuth = {
       return null;
     }
   },
+  async verifyBearerToken(token: string): Promise<string | null> {
+    const secretKey = process.env.CLERK_SECRET_KEY;
+    if (!secretKey) return null;
+    try {
+      const { verifyToken } = await import('@clerk/nextjs/server');
+      const payload = await verifyToken(token, { secretKey });
+      return payload.sub ?? null;
+    } catch {
+      return null;
+    }
+  },
 };

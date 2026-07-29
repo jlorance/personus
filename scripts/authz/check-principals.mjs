@@ -24,6 +24,10 @@ const RESOLVERS = [
   'getPrincipal',
   'getOptionalPrincipal',
   'getAnonymousMcpPrincipal',
+  // Tier-aware MCP resolver: authenticated (Bearer) → depth-2 Principal,
+  // anonymous fallback → same as getAnonymousMcpPrincipal. Replaces the bare
+  // anonymous call now that the MCP endpoint supports both tiers (PER-7).
+  'resolveMcpPrincipal',
   'getPlatformPrincipal',
   'getPagePrincipal',
   'requireAdmin',

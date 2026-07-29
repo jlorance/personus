@@ -51,4 +51,11 @@ export interface ServerAuth {
   currentUser(): Promise<AuthUser | null>;
   /** True when the provider is configured (keys present) in this environment. */
   isConfigured(): boolean;
+  /**
+   * Verify a raw Bearer token (e.g. a Clerk session JWT or machine token) and
+   * return the subject id it encodes, or null if the token is missing, malformed,
+   * expired, or the provider is not configured. Never throws — callers treat null
+   * as "anonymous".
+   */
+  verifyBearerToken(token: string): Promise<string | null>;
 }

@@ -19,7 +19,7 @@ import { db } from '@personus/db';
 import { eq } from '@personus/db/orm';
 import { users, userTraits } from '@personus/db/schema';
 import { UnauthorizedError } from '@personus/db/services';
-import { serverAuth } from './index';
+import { auth, serverAuth } from './index';
 import type { AuthUser } from './provider';
 
 export type ActorType = 'user' | 'system' | 'agent' | 'webhook' | 'mcp-anonymous' | 'platform-bot';
@@ -184,6 +184,55 @@ export function getAnonymousMcpPrincipal(req: Request): Principal {
     ]),
     networkDepth: 1,
     mcpClient: { clientId: clientHash, tier: 'anonymous', tokenIssuedAt: new Date() },
+  };
+}
+
+/**
+ * Resolve the Principal for an inbound MCP request.
+ *
+ * Two tiers:
+ *   authenticated — `Authorization: Bearer <Clerk JWT>` is present and valid.
+ *                   Returns a full user Principal (networkDepth 2,
+ *                   `mcpClient.tier = 'authenticated'`) with the ability to
+ *                   create contact requests and see authenticated+community personas.
+ *   anonymous     — header absent, malformed, or verification fails.
+ *                   Delegates to `getAnonymousMcpPrincipal` (networkDepth 1,
+ *                   public-read only). The existing anonymous path is unchanged.
+ *
+ * Never throws — callers treat any error as "anonymous".
+ */
+export async function resolveMcpPrincipal(req: Request): Promise<Principal> {
+  // Fast path — no header present or not a Bearer scheme.
+  const authHeader = req.headers.get('authorization') ?? '';
+  const tokenMatch = /^Bearer\s+(\S+)$/i.exec(authHeader);
+  if (!tokenMatch) return getAnonymousMcpPrincipal(req);
+
+  // Verify the token through the AuthN provider seam (never against Clerk directly).
+  if (!serverAuth.isConfigured()) return getAnonymousMcpPrincipal(req);
+  const token = tokenMatch[1];
+  const subjectId = await serverAuth.verifyBearerToken(token);
+  if (!subjectId) return getAnonymousMcpPrincipal(req);
+
+  // Valid token — look up or provision the DB user.
+  const authUser = await auth.getUserBySubjectId(subjectId);
+  if (!authUser) return getAnonymousMcpPrincipal(req); // token valid but user revoked
+
+  const dbUser = await resolveDbUser(authUser);
+  const role = parseRole(authUser.roleClaim);
+  const userIdStr = String(dbUser.id);
+  const ability = defineAbilitiesFor(await buildAbilityContext(userIdStr, role));
+  const clientHash = actorHash(subjectId);
+
+  return {
+    actorId: `user:${userIdStr}`,
+    actorType: 'user',
+    userId: userIdStr,
+    authSubjectId: subjectId,
+    email: dbUser.email,
+    role,
+    ability,
+    networkDepth: 2,
+    mcpClient: { clientId: clientHash, tier: 'authenticated', tokenIssuedAt: new Date() },
   };
 }
 

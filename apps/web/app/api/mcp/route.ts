@@ -12,11 +12,12 @@
  * `features.mcp_enabled` flag.
  */
 
-import { getAnonymousMcpPrincipal } from '@personus/auth/principal';
+import { resolveMcpPrincipal } from '@personus/auth/principal';
 import { compression } from '@personus/compression';
 import { RATE_LIMIT_MCP_TOOLS_MAX, RATE_LIMIT_WINDOW_MS } from '@personus/constants';
 import {
   checkRateLimit,
+  createContactRequest,
   getPersonaByUri,
   listCommunities,
   searchPersonas,
@@ -61,6 +62,25 @@ const TOOLS = [
     name: 'personus_list_communities',
     description: 'List public communities.',
     inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'personus_request_introduction',
+    description:
+      'Send a mediated introduction request to a persona. ' +
+      'Requires an authenticated (Bearer-token) caller — anonymous callers receive an error.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        toPersonaUri: { type: 'string', description: 'URI of the persona to contact' },
+        reason: { type: 'string', description: 'Why you are requesting an introduction' },
+        fromPersonaUri: {
+          type: 'string',
+          description: 'Your persona URI (optional — identifies you to the recipient)',
+        },
+        message: { type: 'string', description: 'Optional message to include with the request' },
+      },
+      required: ['toPersonaUri', 'reason'],
+    },
   },
 ] as const;
 
@@ -139,7 +159,9 @@ export async function POST(req: Request) {
       if (!rl.allowed) {
         return rpcError(id, -32000, 'Rate limit exceeded');
       }
-      const principal = getAnonymousMcpPrincipal(req);
+      // Resolve principal: authenticated tier when a valid Clerk Bearer token is
+      // present, anonymous tier otherwise. The anonymous path is unchanged.
+      const principal = await resolveMcpPrincipal(req);
       const name = params?.name as string;
       const args = (params?.arguments ?? {}) as Record<string, any>;
       try {
@@ -151,7 +173,10 @@ export async function POST(req: Request) {
                 await searchPersonas(principal, {
                   query: String(args.query ?? ''),
                   maxResults: args.maxResults,
-                  requireMcpEnabled: true,
+                  // Anonymous callers: restrict to personas that opted into MCP
+                  // exposure. Authenticated callers skip this gate (they see all
+                  // visibility-permitted personas, as on the human web surface).
+                  requireMcpEnabled: principal.mcpClient?.tier !== 'authenticated',
                 }),
               ),
             );
@@ -166,6 +191,24 @@ export async function POST(req: Request) {
             );
           case 'personus_list_communities':
             return rpcResult(id, await toolContent(await listCommunities(principal)));
+          case 'personus_request_introduction': {
+            // Gate: only authenticated callers may send introductions. Anonymous
+            // callers are already filtered to public-read, but explicit gating
+            // here prevents any future principal expansion from bypassing this.
+            if (principal.mcpClient?.tier !== 'authenticated') {
+              return rpcError(id, -32000, 'Authentication required for introductions');
+            }
+            const req_ = await createContactRequest(principal, {
+              toPersonaUri: String(args.toPersonaUri ?? ''),
+              reason: String(args.reason ?? ''),
+              fromPersonaUri: args.fromPersonaUri ? String(args.fromPersonaUri) : undefined,
+              message: args.message ? String(args.message) : undefined,
+            });
+            return rpcResult(
+              id,
+              await toolContent({ publicId: req_.publicId, status: req_.status }),
+            );
+          }
           default:
             return rpcError(id, -32601, `Unknown tool: ${name}`);
         }
