@@ -1,0 +1,11 @@
+-- PER-31: GDPR retention sweeps — make query_logs.query_text nullable.
+--
+-- The retention sweep nulls `query_text` after the configured window to remove
+-- the free-text search string (potential PII) while preserving the analytics
+-- row (matchCount, resultedInContact, etc.).
+--
+-- No data backfill needed: existing rows are all non-null and valid; the only
+-- effect is widening the type so the sweep UPDATE can SET query_text = NULL.
+-- A no-op cost-benefit: plain `ALTER COLUMN DROP NOT NULL` is near-instant
+-- on Postgres (metadata-only DDL, no table rewrite).
+ALTER TABLE "query_logs" ALTER COLUMN "query_text" DROP NOT NULL;

@@ -33,6 +33,8 @@ export type Subjects =
   | 'TraitMetadata'
   | 'TraitTaxonomy'
   | 'CommunityType'
+  | 'QueryLog' // retention sweep: null query_text after window (PER-31)
+  | 'AuditLog' // retention sweep: hard-delete rows after window (PER-31)
   | 'all';
 
 export type Role = 'user' | 'admin';

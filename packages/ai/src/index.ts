@@ -42,3 +42,4 @@ export {
   getToolPrincipal,
   PRINCIPAL_CTX_KEY,
 } from './principal-context';
+export { purgeAgentMemory, purgeMemoryInstances } from './purge-memory';

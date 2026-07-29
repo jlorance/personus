@@ -9,7 +9,9 @@ export const queryLogs = pgTable('query_logs', {
   communityId: bigint('community_id', { mode: 'bigint' })
     .references(() => communities.id, { onDelete: 'cascade' })
     .notNull(),
-  queryText: text('query_text').notNull(),
+  // Nullable after retention sweep — the analytics row is kept but the
+  // free-text search string is cleared when the retention window expires (PER-31).
+  queryText: text('query_text'),
   querySource: text('query_source').notNull(),
   agentId: uuid('agent_id'),
   matchCount: integer('match_count').default(0),
