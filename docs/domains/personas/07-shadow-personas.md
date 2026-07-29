@@ -10,7 +10,7 @@ timestamp: 2026-02-23
 # Identity & Personas -- Shadow Personas
 
 > Date: 2026-02-23
-> Status: Draft
+> Status: Planned
 > Depends on: `00-prd.md`, `01-persona-lifecycle.md`, `docs/foundation/data-model.md`, `docs/foundation/authorization.md`
 > Primary actors: Creator (authenticated community member), Claimant (non-user or new user), Visitor (unauthenticated viewer), System (expiry cleanup)
 
@@ -83,12 +83,14 @@ app/(dashboard)/communities/[id]/page.tsx          <-- EXISTS: community detail 
        +-- components/ui/badge.tsx                  <-- EXISTS
        +-- components/ui/button.tsx                 <-- EXISTS
        +-- components/share-claim-link.tsx           <-- NEW: copy-to-clipboard claim URL
-       +-- calls: app/actions/shadows.ts
-            +-- createShadowAction()                <-- EXISTS
-            +-- reads/writes: lib/db/schema/shadow-personas.ts
+       +-- calls: packages/db/src/services/mutations.ts
+            +-- createShadowPersona()              <-- SHIPPED (integration-tested)
+            +-- reads/writes: packages/db/src/schema/shadow-personas.ts
 ```
 
-The server action `createShadowAction` already exists in `app/actions/shadows.ts` (lines 85-118). The query helper `createShadowPersona` exists in `lib/db/queries.ts` (lines 86-108). What is missing is the UI: the creation dialog component and the share-link component.
+The service function `createShadowPersona` exists in `packages/db/src/services/mutations.ts` and is integration-tested. The UI surface (creation dialog and share-link component) is not yet shipped.
+
+> **Reconciliation note (PER-12):** An earlier draft referenced `app/actions/shadows.ts` and `lib/db/queries.ts`. The shipped service is `createShadowPersona()` in `packages/db/src/services/mutations.ts`, re-exported via `packages/db/src/services/index.ts`. No `app/actions/shadows.ts` or `lib/db/queries.ts` file exists.
 
 ### Workflows & Stories
 

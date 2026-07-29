@@ -10,7 +10,7 @@ timestamp: 2026-02-23
 # Identity & Personas — Trait Metadata and Rendering System
 
 > Date: 2026-02-23
-> Status: Draft
+> Status: Current
 > Depends on: `00-prd.md`, `01-trait-pool.md`
 > Primary actors: User, Community Organizer (CO), AI Agent
 

@@ -10,7 +10,7 @@ timestamp: 2026-02-23
 # Identity & Personas -- Layout & Theming
 
 > Date: 2026-02-23
-> Status: Draft
+> Status: Planned
 > Depends on: `00-prd.md`, `01-persona-lifecycle.md`, `04-persona-visibility.md`, `docs/foundation/architecture.md`
 > Primary actors: User (authenticated persona owner), Visitor (unauthenticated or non-owner viewer)
 

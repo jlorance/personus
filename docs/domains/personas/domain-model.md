@@ -19,7 +19,7 @@ timestamp: 2026-04-14
 - **TraitTaxonomy** — Suggested values for a trait type (e.g., skill names, interest categories). Seed data; user-extensible.
 - **Persona** — A selective published view of a User's traits. Each Persona has its own visibility, layout, theme, URI, contact preferences, embedding, and MCP exposure settings.
 - **ShadowPersona** — A Persona-like placeholder created *for* a non-user, built within a community context from endorsements. Claimable via token. Converts to a real Persona on claim.
-- **Endorsement** — A positive trust signal written by one Persona (not User) about another Persona or ShadowPersona, always within a community context. Never a review; no ratings.
+- **Endorsement** — A positive trust signal written by one Persona (not User) about another Persona or ShadowPersona. Community context is recorded but optional (`communityId` nullable). Never a review; no ratings.
 - **ContactRequest** — A mediated introduction request to a Persona. Can originate from another Persona, an AI agent, or an anonymous visitor. Never stores raw contact details — the `ContactRelay` resolves delivery.
 
 ## Relationships
@@ -34,18 +34,20 @@ Persona ─1── * ── ContactRequest      (as sender; 0+)
 Persona ─1── * ── ShadowPersona       (as creator; 0+)
 ShadowPersona ─── 1─1 ── Persona      (on claim; shadow converts to persona)
 Community ─1── * ── ShadowPersona     (each shadow is community-scoped)
-Community ─1── * ── Endorsement       (each endorsement is community-scoped)
+Community ─0..1── * ── Endorsement    (community context is optional; communityId nullable)
 ```
 
-Cross-area references: Persona belongs to User (auth), Endorsement belongs to Community (Communities area), ShadowPersona belongs to Community, ContactRequest may belong to Community.
+Cross-area references: Persona belongs to User (auth), Endorsement optionally belongs to Community (Communities area; communityId nullable), ShadowPersona belongs to Community, ContactRequest may belong to Community.
 
 ## Lifecycle
 
 **Persona**
 ```
-Draft (created) → Published (visibility set) → Deleted (hard)
+Draft (created) → Published (visibility set) → Soft-deleted (deletePersona) or Hard-deleted (purgePersona / GDPR)
 ```
-No archive state — visibility=`private` serves as "hidden but preserved." On delete, the persona and all its endorsements received are removed. Endorsements **written** by the persona persist (they're not deleted when the writer's persona is deleted, because they're trust signals about the target).
+No archive state — visibility=`private` serves as "hidden but preserved." Regular deletion (`deletePersona`) soft-deletes the row and declines pending contact requests; it does NOT cascade to endorsements or community memberships in the shipped service layer (see Reconciliation note). GDPR purge (`purgePersona`) hard-deletes the row; FK CASCADE then removes received endorsements and contact requests from the database. Endorsements **written** by the persona persist across soft-deletion (the persona row is not removed, so no FK cascade fires); they are cascade-deleted when the persona is hard-deleted (`purgePersona`), because `fromPersonaUri` FK is `ON DELETE CASCADE`.
+
+> **Reconciliation note (PER-12):** `01-persona-lifecycle.md` §5 describes a 10-step deletion cascade (endorsement deactivation, community membership deletion, shadow persona nulling, etc.). The shipped `deletePersona` service (`packages/db/src/services/personas.ts`) implements only two atomic steps: soft-delete the persona (nulling the embedding) and decline pending contact requests. The full cascade from §5 is unbuilt detail; each unimplemented step is a planned enhancement.
 
 **ShadowPersona**
 ```
@@ -72,7 +74,9 @@ pending → responded (accepted|declined) or expired
 
 3. **Endorsements identify writers by persona, not by user.** `Endorsement.fromPersonaUri` points at a Persona, not a User. This preserves unlinkability: a User who endorses from their Professional persona cannot be cross-referenced to their Neighborhood persona by looking at their endorsement history.
 
-4. **ShadowPersonas and Endorsements are community-scoped.** Every ShadowPersona and every Endorsement has a non-null `communityId`. There is no such thing as an "unscoped" shadow or endorsement. Discovery surfaces may project these into non-community contexts, but the data is always attached to a community.
+4. **ShadowPersonas are community-scoped; Endorsement community context is optional.** Every ShadowPersona has a non-null `communityId` — there is no such thing as an "unscoped" shadow. Endorsements record the community context where they were given, but `communityId` is nullable (SET NULL when a community is deleted). The endorsement survives community closure; the trust signal is preserved even without the originating community.
+
+> **Reconciliation note (PER-12):** The original text of invariant 4 stated "every Endorsement has a non-null communityId". The shipped schema (`packages/db/src/schema/endorsements.ts`) has `communityId` nullable with SET NULL. The `createEndorsement()` service does not require or accept a community context at the call site.
 
 5. **ContactRequest has three sender modes.** The sender is exactly one of: `fromPersonaUri` (another Persona), `fromAgentId` (an AI agent acting for a user), or `fromAnonymous` (a visitor who hasn't signed up yet, storing their identification in a JSON blob). Never more than one; never none.
 

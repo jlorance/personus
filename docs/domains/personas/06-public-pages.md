@@ -10,7 +10,7 @@ timestamp: 2026-02-23
 # Identity & Personas -- Public Pages
 
 > Date: 2026-02-23
-> Status: Draft
+> Status: Current
 > Depends on: `00-prd.md`, `04-persona-visibility.md`, `05-layout-and-theming.md`, `docs/foundation/data-model.md`, `docs/foundation/vision.md`
 > Primary actors: Visitor (unauthenticated or non-owner viewer), Search Engines (Googlebot, Bingbot), AI Agents (ChatGPT, Perplexity, Gemini)
 
