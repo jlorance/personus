@@ -37,10 +37,24 @@ export const webhookAuth: SystemActorDef = {
   ]),
 };
 
-/** Destructive retention/scrub cron — dev/test only. */
+/**
+ * Retention/scrub cron — clears PII-bearing fields and prunes append-only logs
+ * after their declared retention window. Granted only what each sweep touches:
+ *   - update ContactRequest  — nulls message + triageNote on closed requests
+ *   - update QueryLog        — nulls query_text on aged analytics rows
+ *   - purge  AuditLog        — hard-deletes audit rows past retention
+ *   - purge  ActivityEvent   — left in place; future sweep target if needed
+ *
+ * _productionGuard removed (PER-31): the guard existed because no sweep
+ * function was wired; now that sweeps are shipped this actor is production-safe.
+ */
 export const retentionCron: SystemActorDef = {
   actorId: 'system:retention',
   actorType: 'system',
-  ability: buildNarrowAbility([['purge', 'ActivityEvent']]),
-  _productionGuard: true,
+  ability: buildNarrowAbility([
+    ['update', 'ContactRequest'],
+    ['update', 'QueryLog'],
+    ['purge', 'AuditLog'],
+    ['purge', 'ActivityEvent'],
+  ]),
 };

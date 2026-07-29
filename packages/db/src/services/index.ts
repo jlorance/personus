@@ -213,12 +213,13 @@ export async function updatePersonaTraits(
   return updated ?? null;
 }
 
-export * from './communities';
-export * from './contacts';
-export * from './endorsements';
 // ─── Re-exports ───────────────────────────────────────────────────────────────
 // Placed at the bottom so the classes/types above are defined before these
 // modules (which import from here) are evaluated.
+export * from './admin-purge';
+export * from './communities';
+export * from './contacts';
+export * from './endorsements';
 export * from './gates';
 export * from './mutations';
 // personas exports: createPersona, listMyPersonas, deletePersona, purgePersona,
@@ -227,5 +228,6 @@ export * from './personas';
 export * from './platform-channels';
 export * from './rate-limit';
 export * from './reference';
+export * from './retention';
 export * from './search';
 export * from './settings.service';

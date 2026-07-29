@@ -9,10 +9,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { db } from '../index';
 import { eq } from '../orm';
 import {
+  auditLog,
   coachSessions,
   communities,
   contactRequests,
   personas,
+  queryLogs,
   systemSettings,
   users,
   userTraits,
@@ -57,6 +59,7 @@ import {
   listSystemSettings,
   NotFoundError,
   purgePersona,
+  purgeUser,
   purgeUserCoachSessions,
   requestToJoin,
   resolveBoundCommunity,
@@ -65,6 +68,9 @@ import {
   revokePlatformChannel,
   type ServicePrincipal,
   searchPersonas,
+  sweepAuditLog,
+  sweepContactRequestPii,
+  sweepQueryLogText,
   updateCommunityType,
   updatePersona,
   updatePersonaEmbedding,
@@ -1165,6 +1171,281 @@ describe.skipIf(!hasTestDb)('service layer (integration)', () => {
 
       const members = await listCommunityMembers(founder, c.slug);
       expect(members.map((m) => m.uri)).toContain(jp.uri);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // PER-31: retention sweeps
+  // ---------------------------------------------------------------------------
+
+  describe('retention sweeps (PER-31)', () => {
+    /** Ability that has update ContactRequest + update QueryLog + purge AuditLog. */
+    const retentionAbility = {
+      can: (a: string, s: string) =>
+        (a === 'update' && (s === 'ContactRequest' || s === 'QueryLog')) ||
+        (a === 'purge' && s === 'AuditLog'),
+    };
+    const retentionPrincipal: ServicePrincipal = {
+      userId: null,
+      ability: retentionAbility,
+    };
+    const noSweepPrincipal: ServicePrincipal = {
+      userId: null,
+      ability: { can: () => false },
+    };
+
+    /** Insert a community so contact requests / query logs can reference it. */
+    async function makeTestCommunity() {
+      const founder = await makeUser(400);
+      const fp = await createPersona(founder, { displayName: 'Sweep Guild Lead' });
+      return createCommunity(founder, { name: 'Sweep Guild', foundingPersonaUri: fp.uri });
+    }
+
+    it('sweepContactRequestPii nulls message + triageNote on closed requests past cutoff', async () => {
+      const sender = await makeUser(401);
+      const recipient = await makeUser(402);
+      const sp = await createPersona(sender, { displayName: 'Sweep Sender' });
+      const rp = await createPersona(recipient, {
+        displayName: 'Sweep Recipient',
+        visibility: 'public',
+      });
+
+      const req = await createContactRequest(sender, {
+        fromPersonaUri: sp.uri,
+        toPersonaUri: rp.uri,
+        reason: 'test sweep',
+        message: 'hello this is PII',
+      });
+
+      // Mark the request as responded so it is "closed" (not pending).
+      await respondToContact(recipient, req.publicId, 'approved');
+
+      // Back-date the row so it falls within the cutoff window.
+      await db
+        .update(contactRequests)
+        .set({ createdAt: new Date(Date.now() - 200 * 24 * 60 * 60 * 1000) })
+        .where(eq(contactRequests.publicId, req.publicId));
+
+      // Act — cutoff = 90 days, but row is 200 days old.
+      const cleared = await sweepContactRequestPii(retentionPrincipal);
+      expect(cleared).toBeGreaterThanOrEqual(1);
+
+      // Assert the PII fields are gone.
+      const [after] = await db
+        .select({ message: contactRequests.message, triageNote: contactRequests.triageNote })
+        .from(contactRequests)
+        .where(eq(contactRequests.publicId, req.publicId));
+      expect(after.message).toBeNull();
+      expect(after.triageNote).toBeNull();
+    });
+
+    it('sweepContactRequestPii leaves pending requests untouched', async () => {
+      const sender = await makeUser(403);
+      const recipient = await makeUser(404);
+      const sp = await createPersona(sender, { displayName: 'Pending Sender' });
+      const rp = await createPersona(recipient, {
+        displayName: 'Pending Recipient',
+        visibility: 'public',
+      });
+
+      const req = await createContactRequest(sender, {
+        fromPersonaUri: sp.uri,
+        toPersonaUri: rp.uri,
+        reason: 'pending test',
+        message: 'keep this',
+      });
+      // Back-date without closing.
+      await db
+        .update(contactRequests)
+        .set({ createdAt: new Date(Date.now() - 200 * 24 * 60 * 60 * 1000) })
+        .where(eq(contactRequests.publicId, req.publicId));
+
+      await sweepContactRequestPii(retentionPrincipal);
+
+      const [after] = await db
+        .select({ message: contactRequests.message })
+        .from(contactRequests)
+        .where(eq(contactRequests.publicId, req.publicId));
+      // Still pending → message must NOT have been cleared.
+      expect(after.message).toBe('keep this');
+    });
+
+    it('sweepContactRequestPii throws ForbiddenError for a principal without update ContactRequest', async () => {
+      await expect(sweepContactRequestPii(noSweepPrincipal)).rejects.toBeInstanceOf(ForbiddenError);
+    });
+
+    it('sweepQueryLogText nulls query_text on aged rows', async () => {
+      const community = await makeTestCommunity();
+
+      const [qlog] = await db
+        .insert(queryLogs)
+        .values({
+          communityId: community.id,
+          queryText: 'find me a welder',
+          querySource: 'discovery',
+          createdBy: 'test',
+          updatedBy: 'test',
+          // Back-date by 200 days.
+          createdAt: new Date(Date.now() - 200 * 24 * 60 * 60 * 1000),
+        })
+        .returning();
+
+      const cleared = await sweepQueryLogText(retentionPrincipal);
+      expect(cleared).toBeGreaterThanOrEqual(1);
+
+      const [after] = await db
+        .select({ queryText: queryLogs.queryText })
+        .from(queryLogs)
+        .where(eq(queryLogs.id, qlog.id));
+      expect(after.queryText).toBeNull();
+    });
+
+    it('sweepQueryLogText ignores rows within the retention window', async () => {
+      const community = await makeTestCommunity();
+
+      const [qlog] = await db
+        .insert(queryLogs)
+        .values({
+          communityId: community.id,
+          queryText: 'recent search',
+          querySource: 'discovery',
+          createdBy: 'test',
+          updatedBy: 'test',
+          // Fresh row — within 90-day window.
+          createdAt: new Date(),
+        })
+        .returning();
+
+      await sweepQueryLogText(retentionPrincipal);
+
+      const [after] = await db
+        .select({ queryText: queryLogs.queryText })
+        .from(queryLogs)
+        .where(eq(queryLogs.id, qlog.id));
+      expect(after.queryText).toBe('recent search');
+    });
+
+    it('sweepQueryLogText throws ForbiddenError for a principal without update QueryLog', async () => {
+      await expect(sweepQueryLogText(noSweepPrincipal)).rejects.toBeInstanceOf(ForbiddenError);
+    });
+
+    it('sweepAuditLog hard-deletes rows older than the retention window', async () => {
+      // Insert a stale audit row by bypassing the service (audit_log is append-only).
+      const [row] = await db
+        .insert(auditLog)
+        .values({
+          kind: 'test.sweep',
+          reasonCode: 'test',
+          metadata: {},
+          createdBy: 'test',
+          createdAt: new Date(Date.now() - 400 * 24 * 60 * 60 * 1000), // 400 days ago
+        })
+        .returning();
+
+      const deleted = await sweepAuditLog(retentionPrincipal);
+      expect(deleted).toBeGreaterThanOrEqual(1);
+
+      // Row must be gone.
+      const remaining = await db
+        .select({ id: auditLog.id })
+        .from(auditLog)
+        .where(eq(auditLog.id, row.id));
+      expect(remaining).toHaveLength(0);
+    });
+
+    it('sweepAuditLog preserves rows within the retention window', async () => {
+      const [fresh] = await db
+        .insert(auditLog)
+        .values({
+          kind: 'test.recent',
+          reasonCode: 'test',
+          metadata: {},
+          createdBy: 'test',
+          createdAt: new Date(), // just now
+        })
+        .returning();
+
+      await sweepAuditLog(retentionPrincipal);
+
+      const remaining = await db
+        .select({ id: auditLog.id })
+        .from(auditLog)
+        .where(eq(auditLog.id, fresh.id));
+      // Fresh row must survive.
+      expect(remaining).toHaveLength(1);
+    });
+
+    it('sweepAuditLog throws ForbiddenError for a principal without purge AuditLog', async () => {
+      await expect(sweepAuditLog(noSweepPrincipal)).rejects.toBeInstanceOf(ForbiddenError);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // PER-31: admin purge endpoint service layer
+  // ---------------------------------------------------------------------------
+
+  describe('purgeUser (PER-31)', () => {
+    it('purges all personas and coach sessions for a user', async () => {
+      const admin = await makeAdmin(500);
+      const owner = await makeUser(501);
+
+      const p1 = await createPersona(owner, { displayName: 'Purge P1', visibility: 'public' });
+      const p2 = await createPersona(owner, { displayName: 'Purge P2', visibility: 'public' });
+      await db.insert(coachSessions).values({
+        userId: BigInt(owner.userId as string),
+        kind: 'persona_coach',
+        status: 'completed',
+        transcript: [{ role: 'user', content: 'private coaching data' }],
+        createdBy: 'test',
+        updatedBy: 'test',
+      });
+
+      const result = await purgeUser(admin, owner.userId as string);
+
+      expect(result.personasDeleted).toBe(2);
+      expect(result.coachSessionsDeleted).toBe(1);
+
+      // Personas must be hard-deleted.
+      const remaining = await db
+        .select({ uri: personas.uri })
+        .from(personas)
+        .where(eq(personas.userId, BigInt(owner.userId as string)));
+      expect(remaining).toHaveLength(0);
+
+      // Verify individual URIs are gone.
+      expect(await purgePersona(admin, p1.uri)).toBe(false); // already gone
+      expect(await purgePersona(admin, p2.uri)).toBe(false);
+    });
+
+    it('purgeUser reaches soft-deleted personas (tombstones must not survive GDPR)', async () => {
+      const admin = await makeAdmin(502);
+      const owner = await makeUser(503);
+
+      const p = await createPersona(owner, { displayName: 'Tombstone P' });
+      // Soft-delete before purge — GDPR erasure must still reach it.
+      await deletePersona(owner, p.uri);
+
+      const result = await purgeUser(admin, owner.userId as string);
+      expect(result.personasDeleted).toBe(1);
+
+      // Hard-deleted — no row at all.
+      const [row] = await db.select().from(personas).where(eq(personas.uri, p.uri)).limit(1);
+      expect(row).toBeUndefined();
+    });
+
+    it('purgeUser returns 0,0 when the user has no personas or sessions', async () => {
+      const admin = await makeAdmin(504);
+      const emptyUser = await makeUser(505);
+
+      const result = await purgeUser(admin, emptyUser.userId as string);
+      expect(result.personasDeleted).toBe(0);
+      expect(result.coachSessionsDeleted).toBe(0);
+    });
+
+    it('purgeUser throws ForbiddenError for a non-admin', async () => {
+      const userId = String(await insertUser(506));
+      const noPurge: P = { userId, ability: { can: (a) => a !== 'purge' }, networkDepth: 2 };
+      await expect(purgeUser(noPurge, userId)).rejects.toBeInstanceOf(ForbiddenError);
     });
   });
 });
