@@ -219,7 +219,7 @@ A single-use token issued by an admin for an `invite_only` community. The invite
 
 **Invariants**
 1. Only valid for `invite_only` communities. `createInvitation` throws `ForbiddenError` for other policies.
-2. A token may only be claimed once (`claimedByUserId` is set on claim and checked before use).
+2. A token may only be claimed once (`claimedByUserId` is set on claim and checked before use). **Known gap:** the check (`SELECT … claimedByUserId`) and the update (`SET claimedByUserId = …`) are separate statements; two concurrent claim attempts could both see `claimedByUserId = null` and both succeed. A conditional update (`UPDATE … WHERE claimedByUserId IS NULL RETURNING *`) with a row-count check would make this atomic but is not yet implemented.
 3. `listCommunityInvitations` returns unclaimed tokens only (admin UI surface).
 
 **Known gaps (from PER-8):**
