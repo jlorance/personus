@@ -812,7 +812,7 @@ The current `components/delete-persona-button.tsx` (59 lines) has a Dialog with 
 
 ### 5.4 Deletion Behavior
 
-> **Reconciliation note (PER-12):** The cascade described below is the **intended future behavior**. The shipped `deletePersona` service (`packages/db/src/services/personas.ts`) implements only two atomic steps: (1) soft-delete the persona and null its embedding, (2) decline any pending contact requests addressed to the persona. Steps 1–4, 6–8, and 10 are unbuilt. The `getPersonaDeletionImpact()` action and the impact preview UI are also not yet implemented.
+> **Reconciliation note (PER-12):** The cascade described below is the **intended future behavior**. The shipped `deletePersona` service (`packages/db/src/services/personas.ts`) implements only two atomic steps: (1) soft-delete the persona and null its embedding, (2) decline any pending contact requests addressed to the persona. Steps 1–3, 5–8, and 10 are unbuilt. The `getPersonaDeletionImpact()` action and the impact preview UI are also not yet implemented.
 
 **Impact preview:** When the delete dialog opens, it calls `getPersonaDeletionImpact(uri)` to fetch counts of affected data: endorsements received, endorsements given, community memberships, pending contact requests, shadow personas created. Zero counts omitted. If all zero: "This persona has no associated data."
 
@@ -823,7 +823,7 @@ The current `components/delete-persona-button.tsx` (59 lines) has a Dialog with 
 2. Endorsements given (`fromPersonaUri`): set `active = false`
 3. Community memberships (`personaId`): delete rows
 4. Contact requests to (`toPersonaUri`): set `status = 'declined'`, `responseNote = 'Persona deleted'`
-5. Contact requests from (`fromPersonaUri`): null `fromPersonaUri` — **shipped**
+5. Contact requests from (`fromPersonaUri`): null `fromPersonaUri` — **planned** (note: the shipped schema uses `ON DELETE CASCADE` on this FK; the soft-delete path does not touch sender contact requests)
 6. Shadow personas created by (`createdByPersonaUri`): null `createdByPersonaUri` — note: shipped schema uses CASCADE (shadow is deleted, not nulled) when creator's persona is hard-deleted
 7. Shadow personas claimed by (`claimedByPersonaUri`): null, reset `claimStatus = 'unclaimed'`
 8. Communities backed by (`backingPersonaUri`): null
