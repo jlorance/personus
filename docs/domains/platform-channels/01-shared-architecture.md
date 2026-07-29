@@ -9,7 +9,7 @@ timestamp: 2026-02-23
 
 # Platform Integrations — Shared Architecture
 
-> **Reconciliation note (2026-07-29):** Sections 1–5 of this spec have been rewritten to match the shipped code. The old `integrations` table and its associated constants (`INTEGRATION_PLATFORMS`, `INTEGRATION_STATUSES`), types (`IntegrationConfig`), and server actions no longer exist. The canonical sources of truth are `packages/constants/src/index.ts`, `packages/db/src/schema/platform-channels.ts`, and `packages/db/src/services/platform-channels.ts`. Sections 6–10 describe future UI, MCP, security, and testing work that has not yet shipped.
+> **Reconciliation note (2026-07-29):** Sections 1–5 of this spec have been rewritten to match the shipped code. The old `integrations` table and its associated constants (`INTEGRATION_PLATFORMS`, `INTEGRATION_STATUSES`), types (`IntegrationConfig`), and server actions no longer exist. The canonical sources of truth are `packages/constants/src/index.ts`, `packages/db/src/schema/platform-channels.ts`, and `packages/db/src/services/platform-channels.ts`. Sections 6–8 describe future UI, MCP, and testing work that has not yet shipped. Section 9 describes the shipped security model. Section 10 is the implementation checklist: Phase A items are shipped; Phases B–E remain future work.
 
 > Date: 2026-02-23
 > Status: Draft — awaiting review
@@ -49,7 +49,7 @@ export type PlatformChannelName = 'slack' | 'discord' | 'telegram';
 'revoked'   — community admin revoked the binding (soft-deleted)
 ```
 
-> Note: `'disconnected'` and `'error'` from the earlier design are not used. A binding is either active or revoked; transient connection errors are not persisted to the binding row.
+> Note: `'disconnected'` and `'error'` from the earlier design are not used. A binding is pending, active, or revoked; transient connection errors are not persisted to the binding row.
 
 ---
 
@@ -147,6 +147,8 @@ export const platformChannelBindings = pgTable(
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
   },
   (table) => [
+    // Not a partial index — covers revoked and soft-deleted rows too. Re-binding
+    // after revocation works by updating the existing row, not inserting (see §4).
     unique('uq_platform_channel_bindings_platform_ref').on(table.platform, table.externalRef),
     index('idx_platform_channel_bindings_community')
       .on(table.communityId)
@@ -393,15 +395,15 @@ Returns the `externalPlatforms` array for a given community.
 ## 9. Security
 
 1. **Community admin check** on all binding mutations — `bindPlatformChannel` and `revokePlatformChannel` require both the CASL `manage PlatformChannel` ability and community-admin membership (`memberRole() === 'admin'`). A platform superuser (`isPlatformAdmin`) bypasses the membership check for support/moderation.
-2. **Signature verification required in production** — the webhook route (`/api/channels/[platform]/webhook`) enforces platform signature verification whenever a secret is configured and always in production. See `packages/ai/src/platform-verify.ts` for Slack HMAC-SHA256, Discord Ed25519, and Telegram token verification.
-3. **Adapter config is opaque JSONB** — `adapterConfig` stores whatever the Mastra chat-adapter needs (tokens, workspace IDs, etc.). It is not encrypted at rest; if bot tokens require encryption, add a KMS-backed seam before storing.
+2. **Signature verification required in production** — the webhook route (`/api/channels/[platform]/webhook`) enforces platform signature verification whenever a secret is configured, and in production an unconfigured endpoint is refused rather than left open (a missing secret means all requests fail verification). See `packages/ai/src/platform-verify.ts` for Slack HMAC-SHA256, Discord Ed25519, and Telegram token verification.
+3. **Adapter config is opaque JSONB** — `adapterConfig` stores whatever the Mastra chat-adapter needs (tokens, workspace IDs, etc.). It is not encrypted at rest. Bot credentials stored here are a production risk; add a KMS-backed secret-reference seam before storing any production tokens.
 4. **Platform identities are member-controlled** — stored as traits with per-persona visibility settings.
 
 ---
 
 ## 10. Implementation Checklist
 
-Ordered for incremental shippability. Phases A–C are **shipped**; B–E remain future work.
+Ordered for incremental shippability. Phase A is **shipped**; Phases B–E remain future work.
 
 ### Phase A: Constants + Schema + Service layer (shipped ✓)
 - [x] `PLATFORM_CHANNELS = ['slack', 'discord', 'telegram']` in `packages/constants/src/index.ts`

@@ -539,7 +539,7 @@ export async function resolveBoundCommunity(
 
 - Query target: `platformChannelBindings` (not `integrations`)
 - Lookup key: `externalRef` (not `platformEntityId` / `platformEntityName`)
-- Filter: `status = 'active'` **and** `deleted_at IS NULL` — revoked bindings are invisible to the webhook
+- Filter: `status = 'active'` **and** `deleted_at IS NULL` — non-active and soft-deleted bindings are invisible to the webhook
 - Return type: `{ communityId: string } | null` — returns the stringified bigint community id or null
 
 The webhook route (`apps/web/app/api/channels/[platform]/webhook/route.ts`) calls `handlePlatformMessage` from `@personus/ai`, which in turn calls `resolveBoundCommunity`. Channel adapters do not need to perform the lookup directly.
