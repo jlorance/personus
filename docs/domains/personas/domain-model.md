@@ -19,7 +19,7 @@ timestamp: 2026-04-14
 - **TraitTaxonomy** — Suggested values for a trait type (e.g., skill names, interest categories). Seed data; user-extensible.
 - **Persona** — A selective published view of a User's traits. Each Persona has its own visibility, layout, theme, URI, contact preferences, embedding, and MCP exposure settings.
 - **ShadowPersona** — A Persona-like placeholder created *for* a non-user, built within a community context from endorsements. Claimable via token. Converts to a real Persona on claim.
-- **Endorsement** — A positive trust signal written by one Persona (not User) about another Persona or ShadowPersona, always within a community context. Never a review; no ratings.
+- **Endorsement** — A positive trust signal written by one Persona (not User) about another Persona or ShadowPersona. Community context is recorded but optional (`communityId` nullable). Never a review; no ratings.
 - **ContactRequest** — A mediated introduction request to a Persona. Can originate from another Persona, an AI agent, or an anonymous visitor. Never stores raw contact details — the `ContactRelay` resolves delivery.
 
 ## Relationships
@@ -34,10 +34,10 @@ Persona ─1── * ── ContactRequest      (as sender; 0+)
 Persona ─1── * ── ShadowPersona       (as creator; 0+)
 ShadowPersona ─── 1─1 ── Persona      (on claim; shadow converts to persona)
 Community ─1── * ── ShadowPersona     (each shadow is community-scoped)
-Community ─1── * ── Endorsement       (each endorsement is community-scoped)
+Community ─0..1── * ── Endorsement    (community context is optional; communityId nullable)
 ```
 
-Cross-area references: Persona belongs to User (auth), Endorsement belongs to Community (Communities area), ShadowPersona belongs to Community, ContactRequest may belong to Community.
+Cross-area references: Persona belongs to User (auth), Endorsement optionally belongs to Community (Communities area; communityId nullable), ShadowPersona belongs to Community, ContactRequest may belong to Community.
 
 ## Lifecycle
 
@@ -45,7 +45,7 @@ Cross-area references: Persona belongs to User (auth), Endorsement belongs to Co
 ```
 Draft (created) → Published (visibility set) → Soft-deleted (deletePersona) or Hard-deleted (purgePersona / GDPR)
 ```
-No archive state — visibility=`private` serves as "hidden but preserved." Regular deletion (`deletePersona`) soft-deletes the row and declines pending contact requests; it does NOT cascade to endorsements or community memberships in the shipped service layer (see Reconciliation note). GDPR purge (`purgePersona`) hard-deletes the row; FK CASCADE then removes received endorsements and contact requests from the database. Endorsements **written** by the persona persist in both deletion paths (FK has no cascade on the writer side).
+No archive state — visibility=`private` serves as "hidden but preserved." Regular deletion (`deletePersona`) soft-deletes the row and declines pending contact requests; it does NOT cascade to endorsements or community memberships in the shipped service layer (see Reconciliation note). GDPR purge (`purgePersona`) hard-deletes the row; FK CASCADE then removes received endorsements and contact requests from the database. Endorsements **written** by the persona persist across soft-deletion (the persona row is not removed, so no FK cascade fires); they are cascade-deleted when the persona is hard-deleted (`purgePersona`), because `fromPersonaUri` FK is `ON DELETE CASCADE`.
 
 > **Reconciliation note (PER-12):** `01-persona-lifecycle.md` §5 describes a 10-step deletion cascade (endorsement deactivation, community membership deletion, shadow persona nulling, etc.). The shipped `deletePersona` service (`packages/db/src/services/personas.ts`) implements only two atomic steps: soft-delete the persona (nulling the embedding) and decline pending contact requests. The full cascade from §5 is unbuilt detail; each unimplemented step is a planned enhancement.
 
