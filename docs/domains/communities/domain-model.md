@@ -16,6 +16,8 @@ timestamp: 2026-04-14
 - **Community** — A structured capability overlay on a group of people. Has a type (club, guild, workplace, etc.), a trait profile, member list, and optional integrations with external platforms. May be backed by an organization Persona for branding and authority.
 - **CommunityType** — Data-driven template that defines a community's trait schema, member trait schema, feature flags, and defaults. Seed data. Changing a type is a seed-data change, not a code change.
 - **CommunityMember** — The junction between a User, a Persona, and a Community. Three-way relationship: the User is the human (for permissions and billing), the Persona is what they share with this community (for display and scoped search), and the Community is the context.
+- **CommunityJoinRequest** *(shipped PER-8)* — A pending request to join an `approval`-gated community. Created by the requester; an admin approves or declines. Approval atomically creates the `CommunityMember` row. Not used for `open` or `invite_only` communities.
+- **CommunityInvitation** *(shipped PER-8)* — A single-use token issued by an admin for an `invite_only` community. The invitee presents the token to claim membership. Each token is either unclaimed or claimed (and optionally expired).
 - **GuildSkillCategory** *(guild sub-area)* — Hierarchical skill taxonomy attached to a guild persona. Each category has skill tags and an optional parent.
 - **GuildMembershipTier** *(guild sub-area)* — Progressive membership level (apprentice, journeyman, master) with criteria and permissions.
 - **GuildOffering** *(guild sub-area)* — Service, workshop, or product offered through the guild. Members opt in to fulfill specific offerings.
@@ -23,7 +25,8 @@ timestamp: 2026-04-14
 - **GuildRequest** *(guild sub-area)* — An inbound need routed to qualified guild members based on skill category match.
 
 **Not yet in schema but designed** (flagged as drift):
-- **CommunityRelationship** — Designed in the Communities design ADR (decision #18) to replace `Community.parentCommunityId` with a relationship table supporting chapters, affiliations, referral partners, and cohorts. **The code still uses `parentCommunityId`.** This is a real gap.
+- **CommunityRelationship** — Designed in the Communities design ADR (decision #18) to replace `Community.parentCommunityId` with a relationship table supporting chapters, affiliations, referral partners, and cohorts. **The code still uses `parentCommunityId`.** This is a real gap. Tracked in `12-community-relationships.md`.
+- **CommunityFavorite** — The favorites feature (toggle, per-user list, 10-per-user limit) described in `01-community-lifecycle.md` §2.6 is **not yet implemented**. No `community_favorites` table exists.
 
 ## Relationships
 
@@ -36,6 +39,10 @@ Persona ─1── * ── CommunityMember      (a persona is the face shown in
 Community ─── belongsTo Persona        (backing organization persona, optional)
 Community ─1── * ── Community          (self-ref via parentCommunityId — chapter hierarchy, drift)
 Community ─1── 1 ── CommunityType      (via slug; every community has exactly one type)
+Community ─1── * ── CommunityJoinRequest  (pending requests; approval-gated only)
+Community ─1── * ── CommunityInvitation   (unclaimed tokens; invite_only only)
+User ─1── * ── CommunityJoinRequest    (as requesting user)
+User ─1── * ── CommunityInvitation     (as inviter user)
 
 Guild (= Persona with guild feature flags) ─1─── * ── GuildSkillCategory
 Guild ─1─── * ── GuildMembershipTier
@@ -67,9 +74,9 @@ Created → Active → (Archived | Closed)
 
 **CommunityMember**
 ```
-Active → (Pending | Active) → Left | Removed
+Active → Left | Removed
 ```
-- On approval-required communities, membership starts `visible=false, role='member'` and is activated by a steward or admin
+- Membership rows only exist for active members. Pending requests are modeled as `CommunityJoinRequest` rows (not as a `CommunityMember` with `visible=false`). Approval creates the `CommunityMember` directly with `visible=true`.
 - `Left` and `Removed` are effected by row deletion with an `activity_events` audit entry — no soft delete
 
 **GuildRequest**

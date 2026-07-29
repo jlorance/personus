@@ -25,7 +25,7 @@ Data-driven template defining a community's trait schemas, feature flags, and de
 - `icon` — string, optional — icon identifier
 - `communityTraitSchema` — array of object, required, default `[]` — JSON shape defining the community-level trait fields (mission, location, tags, etc.)
 - `memberTraitSchema` — array of object, required, default `[]` — JSON shape defining the member-level trait fields for this type
-- `defaultJoinPolicy` — enum [`open`, `invite`, `approval`], required, default `open`
+- `defaultJoinPolicy` — enum [`open`, `invite_only`, `approval`], required, default `open`
 - `defaultVisibility` — enum [`public`, `authenticated`, `community`, `private`], required, default `public`
 - `maxMembersDefault` — integer, optional — default member cap
 - `featureFlags` — object, required, default `{}` — feature toggles active for this type (`events`, `chapters`, `skill_taxonomy`, `request_routing`, `offerings`, `membership_tiers`, etc.)
@@ -61,8 +61,8 @@ The central entity. A structured capability overlay on a group of people.
 - `tags` — array of string, optional, default `[]`, indexed (gin) — free-form Explore-page discovery tags
 - `externalPlatforms` — array of object, required, default `[]` — linked external platforms (`{platform, url, connectedAt}`), stored as JSONB
 - `visibility` — enum [`public`, `authenticated`, `community`, `private`], required, default `public`
-- `joinPolicy` — enum [`open`, `invite`, `approval`], required, default `open`
-- `memberCount` — integer, default 0, generated, system — denormalized count, updated by triggers
+- `joinPolicy` — enum [`open`, `invite_only`, `approval`], required, default `open`
+- `memberCount` — integer, default 0, generated, system — denormalized count, maintained atomically via compensating writes (no DB triggers — the Neon HTTP driver has no interactive transactions)
 - `maxMembers` — integer, optional — member cap (nullable = unlimited)
 - `foundingUserId` — reference to User (Personas area), required, indexed — the user who created the community
 - `billingUserId` — reference to User, optional, indexed — user who pays for the community tier (may differ from founder)
@@ -121,8 +121,8 @@ The junction between User, Persona, and Community. **Three-way relationship** �
 - `communityId` — reference to Community, required, indexed
 - `role` — enum [`member`, `steward`, `admin`], required, default `member`, indexed
 - `memberTraits` — object, required, default `{}`, pii-scanned — member-level trait values (shape defined by the community's type `memberTraitSchema`)
-- `visible` — boolean, default `true` — soft-hide for approval-required flows before activation
-- `joinedAt` — timestamp, generated, system
+- `visible` — boolean, default `true` — member-controlled directory visibility; `setMemberVisibility` lets a member hide themselves from the browsable directory without leaving. The directory read path filters `visible = true` and treats NULL as hidden (fail-closed).
+- `createdAt` — timestamp, generated, system — when the member joined (the logical `joinedAt`)
 - `invitedByUserId` — reference to User, optional — who invited this member (for invite tracking)
 - `updatedAt` — timestamp, generated, system
 
@@ -137,10 +137,9 @@ The junction between User, Persona, and Community. **Three-way relationship** �
 
 **Lifecycle:**
 ```
-(Pending | Active) → Left | Removed
+Active → Left | Removed
 ```
-- `visible=false, role='member'` is the pending state for approval-required communities
-- `visible=true, role='member'` is active
+- Membership rows only exist for active members. The pending state for approval-required communities lives in `CommunityJoinRequest`, not as a `CommunityMember` row. Approval creates the membership directly with `visible=true`.
 - Leave and remove are effected by row deletion with an `activity_events` audit entry — no soft delete
 
 **Invariants**
@@ -156,6 +155,77 @@ The junction between User, Persona, and Community. **Three-way relationship** �
 - `personaId` — list communities where a given persona is shown
 - `communityId` — member directory queries
 - `role` — role-filtered queries (e.g., "all stewards in this community")
+
+---
+
+### CommunityJoinRequest
+
+A pending request to join an `approval`-gated community. Created by `requestToJoin`; resolved (approved or declined) by an admin. Shipped in PER-8.
+
+**Fields**
+- `id` — identifier (bigserial, internal), with `publicId` (`cjr_*`) for external references
+- `communityId` — reference to Community, required
+- `requestingUserId` — reference to User, required — the user who submitted the request
+- `requestingPersonaId` — reference to Persona, required — the persona they want to join with
+- `status` — string (`pending` | `approved` | `declined`), required, default `pending`
+- `decisionUserId` — reference to User, optional — the admin who approved or declined
+- `message` — string, optional — "why I want to join" text from the requester
+- `createdAt`, `updatedAt` — timestamp, generated, system
+- `deletedAt` — timestamp, soft-delete tombstone
+
+**Relationships**
+- belongsTo `Community` (via `communityId`)
+- belongsTo `User` (as requester, via `requestingUserId`)
+- belongsTo `Persona` (as joining persona, via `requestingPersonaId`)
+- belongsTo `User` (as decision maker, via `decisionUserId`) — optional
+
+**Lifecycle:**
+```
+pending → approved | declined
+```
+- Approval creates a `CommunityMember` row atomically; the request is not deleted.
+- A user may re-request after a decline (the idempotency guard checks only for a `pending` row).
+
+**Invariants**
+1. Only created for `approval`-gated communities. `joinCommunity` handles `open`; `claimInvitation` handles `invite_only`.
+2. Idempotent: a second request from the same user while one is already `pending` returns the existing `publicId` rather than inserting a duplicate.
+3. Approval fires an in-app `community.request_approved` notification; decline fires `community.request_declined`.
+
+---
+
+### CommunityInvitation
+
+A single-use token issued by an admin for an `invite_only` community. The invitee presents the token to `claimInvitation` to join. Shipped in PER-8.
+
+**Fields**
+- `id` — identifier (bigserial, internal), with `publicId` (`ci_*`) for external references
+- `communityId` — reference to Community, required
+- `inviterUserId` — reference to User, required — the admin who created the invitation
+- `token` — string, unique — opaque claim key (`inv_<nanoid17>`), shared out-of-band
+- `claimedByUserId` — reference to User, optional — set when claimed
+- `claimedByPersonaId` — reference to Persona, optional — set when claimed
+- `claimedAt` — timestamp, optional — when the token was claimed
+- `expiresAt` — timestamp, optional — after this the token is refused by `claimInvitation`
+- `createdAt`, `updatedAt` — timestamp, generated, system
+- `deletedAt` — timestamp, soft-delete tombstone
+
+**Relationships**
+- belongsTo `Community` (via `communityId`)
+- belongsTo `User` (as inviter, via `inviterUserId`)
+- belongsTo `User` (as claimer, via `claimedByUserId`) — optional
+- belongsTo `Persona` (as claiming persona, via `claimedByPersonaId`) — optional
+
+**Lifecycle:** unclaimed → claimed | expired
+
+**Invariants**
+1. Only valid for `invite_only` communities. `createInvitation` throws `ForbiddenError` for other policies.
+2. A token may only be claimed once (`claimedByUserId` is set on claim and checked before use). **Known gap:** the check (`SELECT … claimedByUserId`) and the update (`SET claimedByUserId = …`) are separate statements; two concurrent claim attempts could both see `claimedByUserId = null` and both succeed. A conditional update (`UPDATE … WHERE claimedByUserId IS NULL RETURNING *`) with a row-count check would make this atomic but is not yet implemented.
+3. `listCommunityInvitations` returns unclaimed tokens only (admin UI surface).
+
+**Known gaps (from PER-8):**
+- `listCommunityInvitations` WHERE clause does not filter by `expiresAt`; expired-but-unclaimed tokens appear in the admin list (admin-only surface, not a security issue).
+- `token` has a redundant explicit index alongside the `UNIQUE` constraint.
+- `publicId` prefix generates `ci_*` (not `cinv_*` as schema comments suggest).
 
 ---
 
@@ -334,13 +404,23 @@ pending → matched (matchedCategoryIds + routedToPersonaUris set) → accepted 
 - `CommunityMember.userId` → `User` (Personas area)
 - `CommunityMember.personaId` → `Persona` (Personas area)
 - `CommunityMember.invitedByUserId` → `User` (Personas area)
+- `CommunityJoinRequest.requestingUserId`, `CommunityJoinRequest.decisionUserId` → `User` (Personas area)
+- `CommunityJoinRequest.requestingPersonaId` → `Persona` (Personas area)
+- `CommunityInvitation.inviterUserId`, `CommunityInvitation.claimedByUserId` → `User` (Personas area)
+- `CommunityInvitation.claimedByPersonaId` → `Persona` (Personas area)
 - All guild sub-entities → `Persona` (Personas area) via `guildPersonaId` and various persona URI references
 - `ShadowPersona.communityId`, `Endorsement.communityId`, `ContactRequest.toCommunityId` → `Community` (inbound from Personas area)
 
 ## Drift and open questions
 
-1. **`parentCommunityId` vs. `community_relationships` table** — Communities design ADR decision #18 specifies replacing the self-reference with a relationship table supporting four relationship types (chapter_of, affiliated_with, referral_partner, cohort_of). **The code still uses the self-reference.** When the replacement is implemented, update this schema spec and the `02-data-model.md` cross-area ER map.
+1. **`parentCommunityId` vs. `community_relationships` table** — Communities design ADR decision #18 specifies replacing the self-reference with a relationship table supporting four relationship types (chapter_of, affiliated_with, referral_partner, cohort_of). **The code still uses the self-reference.** The `communityRelationships` table described in `01-community-lifecycle.md` §7 is **not yet implemented**. When implemented, update this schema spec and the `02-data-model.md` cross-area ER map.
 
 2. **`externalPlatforms` as inline JSONB array** — Currently integration state lives on `Community.externalPlatforms`. If integration state grows (status, health, last sync, credentials reference), this may need to become a separate `community_integrations` table. Not blocking.
 
 3. **GuildRequest requester identification** — Both `requesterId` and `requesterPersonaUri` are optional. For anonymous inbound requests, both may be null. The schema allows this but the PRD should clarify whether fully-anonymous guild requests are a supported flow. See Personas PRD §ContactRequest (three-sender-mode pattern) — it may make sense to harmonize these.
+
+4. **`communityFavorites` table** — The favorites feature described in `01-community-lifecycle.md` §2.6 (toggle, list, 10-per-user limit) is **not yet implemented**. No `community_favorites` table exists in the current schema.
+
+5. **`communityJoinRequests.status` as plain text** — The `status` column is `text` rather than a pgEnum. Values are constrained by convention (`pending`, `approved`, `declined`) but not enforced at the DB level. A future migration could narrow this to a pgEnum.
+
+6. **`CommunityInvitation.publicId` prefix** — `baseFields('ci')` generates `ci_*` public IDs, but comments in the original schema spec referenced `cinv_*`. The actual generated prefix is `ci_`.
