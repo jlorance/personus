@@ -10,7 +10,7 @@ timestamp: 2026-02-24
 # Platform & Operations -- System Settings
 
 > Date: 2026-02-24
-> Status: Draft
+> Status: Current
 > Depends on: `00-prd.md`, `01-monorepo-migration.md`
 > Primary actors: Admin
 
@@ -66,7 +66,7 @@ export type NewSystemSetting = typeof systemSettings.$inferInsert;
 - **No separate `active` column.** Settings are always active. Feature flags use `boolean` values. Removing a setting entirely is a developer action (schema migration), not an admin action.
 - **JSONB for both `value` and `defaultValue`.** This allows numbers, booleans, strings, and complex objects to be stored natively. The `valueType` column tells the admin UI how to render the editor (number input, toggle, text input, JSON textarea).
 - **Primary key on `key`, not UUID.** Settings are referenced by key in application code (`getSetting('ai.coach_model')`). A UUID would add indirection with no benefit. The key namespace uses dots to visually group related settings.
-- **No `version` or `history` column.** Change history is tracked via the `admin_audit_log` table (see section 5), not inline.
+- **No `version` or `history` column.** Change history is tracked via the `audit_log` table (see section 5), not inline.
 
 ### Stories
 
@@ -543,19 +543,19 @@ Setting editor by valueType:
 
 ### Component Hierarchy
 
+The shipped implementation uses plain Server Components with inline form rendering.
+Feature flags are split into a dedicated `/flags` route. No client components.
+
 ```
-apps/admin/app/settings/page.tsx                    <- Server Component (data fetching)
-  └─ apps/admin/components/settings-client.tsx      <- Client Component ("use client")
-       ├─ apps/admin/components/settings-category.tsx <- Presentational (one category group)
-       │    └─ apps/admin/components/setting-card.tsx  <- Presentational (one setting)
-       │         ├─ components/ui/input.tsx             <- EXISTS (shared or copied)
-       │         ├─ components/ui/switch.tsx            <- EXISTS
-       │         ├─ components/ui/textarea.tsx          <- EXISTS
-       │         └─ components/ui/button.tsx            <- EXISTS
-       ├─ apps/admin/components/settings-tabs.tsx      <- Category tab navigation
-       └─ apps/admin/components/modified-settings-summary.tsx <- Shows overridden settings
-       └─ calls: apps/admin/app/actions/settings.ts    <- Server Actions
-            └─ reads/writes: packages/db/src/schema/system-settings.ts
+apps/admin/app/settings/page.tsx          <- Server Component (non-feature settings)
+  └─ action: apps/admin/app/settings/actions.ts  <- updateSettingAction (Server Action)
+       └─ packages/db/src/services/settings.service.ts  <- listSystemSettings / updateSystemSetting
+
+apps/admin/app/flags/page.tsx             <- Server Component (boolean features only)
+  └─ action: apps/admin/app/flags/actions.ts     <- toggleFlagAction (Server Action)
+       └─ packages/db/src/services/settings.service.ts  <- listSystemSettings / updateSystemSetting
+
+apps/admin/app/lib/require-admin.ts       <- Auth guard (getAdminPrincipal / requireAdmin)
 ```
 
 ### Editing Behavior
@@ -601,19 +601,32 @@ apps/admin/app/settings/page.tsx                    <- Server Component (data fe
 
 ### Server Actions
 
+Actions are colocated in their route folders and delegate to the service layer:
+
 ```typescript
-// apps/admin/app/actions/settings.ts
+// apps/admin/app/settings/actions.ts
+// Updates any non-feature setting. Coercion is done by the service layer
+// using the setting's OWN stored valueType — no client trust.
+updateSettingAction(formData: FormData): Promise<void>
 
-// [Admin] required. Returns all settings, grouped by category.
-listSettings(): Promise<Record<string, SystemSetting[]>>
+// apps/admin/app/flags/actions.ts
+// Toggles a boolean feature flag. Revalidates /flags path.
+toggleFlagAction(formData: FormData): Promise<void>
+```
 
-// [Admin] required. Updates a single setting value. Validates valueType.
-// Logs to admin_audit_log. Invalidates settings cache.
-updateSetting(key: string, value: unknown): Promise<{ success: boolean; error?: string }>
+Both actions call through to `updateSystemSetting(principal, key, rawValue)` in
+`packages/db/src/services/settings.service.ts`. Feature flags live on a separate
+`/flags` route and use a dedicated toggle button rather than a text input.
 
-// [Admin] required. Resets a setting to its defaultValue.
-// Logs to admin_audit_log. Invalidates settings cache.
-resetSetting(key: string): Promise<{ success: boolean }>
+```typescript
+// packages/db/src/services/settings.service.ts
+
+// [Admin] required. Returns all settings, optionally filtered by category.
+listSystemSettings(principal, category?): Promise<SystemSetting[]>
+
+// [Admin] required. Updates a setting from a raw form string; coerces using
+// the setting's stored valueType. Invalidates per-key cache on success.
+updateSystemSetting(principal, key, rawValue): Promise<SystemSetting | null>
 ```
 
 ### Validation
@@ -686,27 +699,15 @@ Both the consumer app and admin app need to read settings at runtime. A shared `
 ### Read Helper
 
 ```typescript
-// packages/db/src/settings.ts
+// packages/db/src/settings-cache.ts
 
-import { eq } from 'drizzle-orm';
-import type { DB } from './index';
-import { systemSettings } from './schema/system-settings';
+import { env } from '@personus/env';
+import { db } from './index';
+import { eq } from './orm';
+import { type SystemSetting, systemSettings } from './schema/system-settings';
 
-/**
- * In-memory settings cache.
- *
- * Structure: Map<key, { value: unknown; expiresAt: number }>
- *
- * This is a process-level cache — each serverless function invocation
- * gets its own cache instance. In Vercel's edge runtime, function instances
- * are reused for ~5 minutes, so the cache provides real benefit during
- * traffic bursts without risk of serving stale data for long.
- *
- * Cache TTL is itself a setting (cache.settings_cache_ttl_seconds),
- * but we bootstrap with a hardcoded default of 60s to avoid the
- * chicken-and-egg problem.
- */
-const BOOTSTRAP_TTL_MS = 60_000; // 60 seconds
+// Per-key TTL. Overridable via SETTINGS_CACHE_TTL_MS env var.
+const BOOTSTRAP_TTL_MS = env.SETTINGS_CACHE_TTL_MS ?? 60_000;
 
 interface CacheEntry {
   value: unknown;
@@ -715,119 +716,51 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 
-// Module-level DB reference, set by initSettings()
-let dbRef: DB | null = null;
-
-/**
- * Initialize the settings reader with a database connection.
- * Call once at app startup (e.g., in a layout.tsx or middleware).
- */
-export function initSettings(db: DB): void {
-  dbRef = db;
+function cacheSet(key: string, value: unknown, now: number): void {
+  cache.set(key, { value, expiresAt: now + BOOTSTRAP_TTL_MS });
 }
 
-/**
- * Get a single setting value by key.
- *
- * Returns the cached value if fresh, otherwise queries the DB.
- * Falls back to the provided defaultValue if the setting does not
- * exist in the DB (pre-migration safety).
- */
-export async function getSetting<T = unknown>(
-  key: string,
-  defaultValue?: T,
-): Promise<T> {
-  // Check cache
+/** Read a single setting by key. Returns `fallback` if absent or on DB error. */
+export async function getSetting<T = unknown>(key: string, fallback?: T): Promise<T> {
+  const now = Date.now();
   const cached = cache.get(key);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.value as T;
-  }
-
-  // Query DB
-  if (!dbRef) {
-    console.warn(`Settings not initialized. Returning default for "${key}".`);
-    return defaultValue as T;
-  }
+  if (cached && cached.expiresAt > now) return cached.value as T;
 
   try {
-    const [row] = await dbRef
-      .select()
-      .from(systemSettings)
-      .where(eq(systemSettings.key, key))
-      .limit(1);
-
-    if (!row) {
-      // Setting not in DB -- use provided default
-      if (defaultValue !== undefined) {
-        cacheSet(key, defaultValue);
-        return defaultValue;
-      }
-      throw new Error(`Setting "${key}" not found and no default provided`);
+    const rows = await db.select().from(systemSettings).where(eq(systemSettings.key, key));
+    if (rows.length === 0) {
+      cacheSet(key, fallback, now);
+      return fallback as T;
     }
-
-    cacheSet(key, row.value);
-    return row.value as T;
-  } catch (error) {
-    // DB query failed -- return default if available
-    if (defaultValue !== undefined) {
-      console.warn(`Failed to read setting "${key}", using default:`, error);
-      return defaultValue;
-    }
-    throw error;
+    cacheSet(key, rows[0].value, now);
+    return rows[0].value as T;
+  } catch {
+    return fallback as T;
   }
 }
 
-/**
- * Get all settings, optionally filtered by category.
- * Used by the admin page to load all settings at once.
- */
-export async function getSettings(
-  category?: string,
-): Promise<Record<string, unknown>> {
-  if (!dbRef) {
-    console.warn('Settings not initialized.');
-    return {};
+/** Read all settings (optionally by category); warms the per-key cache. */
+export async function getSettings(category?: string): Promise<SystemSetting[]> {
+  const now = Date.now();
+  try {
+    const rows = category
+      ? await db.select().from(systemSettings).where(eq(systemSettings.category, category))
+      : await db.select().from(systemSettings);
+    for (const row of rows) cacheSet(row.key, row.value, now);
+    return rows;
+  } catch {
+    return [];
   }
-
-  const query = category
-    ? dbRef
-        .select()
-        .from(systemSettings)
-        .where(eq(systemSettings.category, category))
-    : dbRef.select().from(systemSettings);
-
-  const rows = await query;
-  const result: Record<string, unknown> = {};
-
-  for (const row of rows) {
-    result[row.key] = row.value;
-    cacheSet(row.key, row.value);
-  }
-
-  return result;
 }
 
-/**
- * Invalidate the entire settings cache.
- * Called by the admin app after writing a setting.
- */
-export function invalidateSettingsCache(): void {
-  cache.clear();
-}
-
-/**
- * Invalidate a single setting from cache.
- * Called by the admin app after updating one setting.
- */
+/** Evict one key — call after a write so the next read is fresh. */
 export function invalidateSetting(key: string): void {
   cache.delete(key);
 }
 
-function cacheSet(key: string, value: unknown): void {
-  cache.set(key, {
-    value,
-    expiresAt: Date.now() + BOOTSTRAP_TTL_MS,
-  });
+/** Clear the whole cache — tests / on demand. */
+export function invalidateSettingsCache(): void {
+  cache.clear();
 }
 ```
 
@@ -917,20 +850,20 @@ When the admin app writes a setting, it invalidates the local cache. However, th
 
 | ID | Story | Notes |
 |----|-------|-------|
-| 4.1 | Developer can initialize the settings reader with a DB connection at app startup | `initSettings(db)` called once per app. Consumer: `apps/web/app/layout.tsx`. Admin: `apps/admin/app/layout.tsx`. |
+| 4.1 | Settings cache uses module-level DB import (no app-startup call required) | `packages/db/src/settings-cache.ts` imports `db` at module scope — no per-app init step. |
 | 4.2 | Developer can read a single setting with a typed fallback | `getSetting<number>('rate_limits.url_scrape_per_hour', 10)`. Returns cached value or queries DB. Falls back to default if DB unavailable. |
-| 4.3 | Developer can read all settings for a category | `getSettings('ai')` returns `Record<string, unknown>`. Used by admin page to bulk-load settings. |
-| 4.4 | System caches settings in-memory with configurable TTL | Process-level `Map` cache. Default 60s TTL. No external cache dependency. |
-| 4.5 | Admin app can invalidate cache after writing a setting | `invalidateSetting(key)` called after `updateSetting()`. Forces next read to hit DB. |
+| 4.3 | Developer can read all settings for a category | `getSettings('ai')` returns `SystemSetting[]`. Used by admin page to bulk-load settings. |
+| 4.4 | System caches settings in-memory with configurable TTL | Process-level `Map` cache. Default 60s TTL (overridable via `SETTINGS_CACHE_TTL_MS` env var). No external cache dependency. |
+| 4.5 | Admin app can invalidate cache after writing a setting | `invalidateSetting(key)` called after `updateSystemSetting()`. Forces next read to hit DB. |
 | 4.6 | Consumer app reads settings correctly before the settings table exists | `getSetting()` catches DB errors and returns the fallback default. No startup failure. |
 | 4.7 | Developer can migrate existing hardcoded values to getSetting() calls | Each hardcoded value replaced with `getSetting(key, currentHardcodedValue)`. Fallback matches existing behavior. |
 
 ### Edge Cases
 
-- [ ] Settings table does not exist (pre-migration) -- `getSetting()` catches the query error and returns the fallback default, logs a warning
+- [ ] Settings table does not exist (pre-migration) -- `getSetting()` catches the query error and returns the fallback default (no warning logged; fail-closed silently)
 - [ ] DB connection lost during runtime -- cached values continue to serve until TTL expires, then fallback defaults kick in
-- [ ] Cache TTL set to 0 -- every read hits DB (no caching). Valid but not recommended.
-- [ ] Admin changes `cache.settings_cache_ttl_seconds` -- takes effect after the current cache entries expire (bootstrap TTL used internally, not self-referential to avoid chicken-and-egg)
+- [ ] Cache TTL set to 0 -- every read hits DB (no caching). Valid but not recommended. Set via `SETTINGS_CACHE_TTL_MS=0`.
+- [ ] Admin changes `cache.settings_cache_ttl_seconds` -- this setting no longer drives the cache TTL at runtime; the cache uses `SETTINGS_CACHE_TTL_MS` from the env. The DB-side setting is preserved as a seed value only.
 - [ ] Concurrent reads for the same key -- both queries hit DB (Map is not locked). Second write overwrites first in cache (same value). Harmless.
 - [ ] `getSetting()` called in a client component -- not supported. Settings are server-only. Client components receive settings via props from server components.
 
@@ -945,9 +878,8 @@ When the admin app writes a setting, it invalidates the local cache. However, th
 - `getSettings('ai')` returns only AI category settings
 
 **Integration tests:**
-- `getSetting()` reads a value written by `updateSetting()`
+- `getSetting()` reads a value written by `updateSystemSetting()`
 - Cache respects TTL -- stale entries are refreshed from DB
-- `initSettings()` with a valid DB connection enables DB reads
 
 ---
 
@@ -955,244 +887,93 @@ When the admin app writes a setting, it invalidates the local cache. However, th
 
 ### Overview
 
-Every setting change is logged to the `admin_audit_log` table with before and after values, the admin who made the change, and a timestamp. The audit log is append-only and immutable -- rows are never updated or deleted. This provides a complete history of every runtime configuration change.
+**Not yet implemented.** The shipped `updateSystemSetting` service writes the setting value and invalidates the cache but does not yet write an audit entry. The shipped audit table is `audit_log` (at `packages/db/src/schema/audit-log.ts`) — a general-purpose append-only event log used for security-relevant events across the platform. It uses a `kind` / `reasonCode` / `metadata` shape rather than the `action` / `entityType` / `entityId` / `before` / `after` columns originally spec'd here.
 
-The `admin_audit_log` table is defined in `05-user-and-community-ops.md` as part of the broader admin audit system. This section defines the audit integration specific to settings changes.
-
-### Audit Log Entry Format
-
-```typescript
-// Audit log entry created by settings changes
-// Table defined in 05-user-and-community-ops.md — referenced here for settings usage
-
-interface SettingsAuditEntry {
-  id: string;                    // UUID
-  action: 'setting_updated' | 'setting_reset';
-  entityType: 'system_setting';
-  entityId: string;              // setting key (e.g., 'ai.coach_model')
-  adminUserId: string;           // Clerk user ID
-  before: unknown;               // previous value (JSONB)
-  after: unknown;                // new value (JSONB)
-  metadata: {
-    category: string;            // setting category
-    valueType: string;           // setting valueType
-    wasDefault: boolean;         // was the previous value the factory default?
-    isDefault: boolean;          // is the new value the factory default?
-  };
-  createdAt: Date;
-}
-```
-
-### Audit Schema
-
-```typescript
-// packages/db/src/schema/admin-audit-log.ts
-// This table serves all admin audit needs (settings, taxonomy, metadata, user ops).
-// Defined here for the settings spec; expanded in 05-user-and-community-ops.md.
-
-import { jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
-
-export const adminAuditLog = pgTable('admin_audit_log', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  action: text('action').notNull(),
-  entityType: text('entity_type').notNull(),
-  entityId: text('entity_id').notNull(),
-  adminUserId: text('admin_user_id').notNull(),
-  before: jsonb('before'),
-  after: jsonb('after'),
-  metadata: jsonb('metadata'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-});
-
-export type AdminAuditLog = typeof adminAuditLog.$inferSelect;
-export type NewAdminAuditLog = typeof adminAuditLog.$inferInsert;
-```
-
-### Audit Integration in Settings Actions
-
-```typescript
-// Inside updateSetting() server action (simplified):
-
-async function updateSetting(key: string, newValue: unknown) {
-  const [existing] = await db
-    .select()
-    .from(systemSettings)
-    .where(eq(systemSettings.key, key))
-    .limit(1);
-
-  if (!existing) throw new Error(`Setting "${key}" not found`);
-
-  // Validate value type
-  validateValueType(existing.valueType, newValue);
-
-  const previousValue = existing.value;
-
-  // Update setting
-  await db
-    .update(systemSettings)
-    .set({
-      value: newValue,
-      updatedAt: new Date(),
-      updatedBy: adminUserId,
-    })
-    .where(eq(systemSettings.key, key));
-
-  // Write audit log
-  await db.insert(adminAuditLog).values({
-    action: 'setting_updated',
-    entityType: 'system_setting',
-    entityId: key,
-    adminUserId,
-    before: previousValue,
-    after: newValue,
-    metadata: {
-      category: existing.category,
-      valueType: existing.valueType,
-      wasDefault: JSON.stringify(previousValue) === JSON.stringify(existing.defaultValue),
-      isDefault: JSON.stringify(newValue) === JSON.stringify(existing.defaultValue),
-    },
-  });
-
-  // Invalidate cache
-  invalidateSetting(key);
-
-  return { success: true };
-}
-```
-
-### Viewing Audit History
-
-The settings admin page includes a "History" link on each setting card that opens a slide-over or sub-page showing the change history for that specific setting key. The full audit log viewer is specified in `05-user-and-community-ops.md`.
-
-```
-Setting history slide-over:
-┌──────────────────────────────────────────────────────────────────┐
-│ History: ai.coach_model                              [Close]     │
-│                                                                  │
-│ ┌──────────────────────────────────────────────────────────────┐ │
-│ │ 2026-02-20 14:32 — admin@personus.ai                        │ │
-│ │ Changed: "openai/gpt-4o" → "openai/gpt-4o-mini"            │ │
-│ └──────────────────────────────────────────────────────────────┘ │
-│                                                                  │
-│ ┌──────────────────────────────────────────────────────────────┐ │
-│ │ 2026-02-18 09:15 — admin@personus.ai                        │ │
-│ │ Reset to default: "openai/gpt-4o"                           │ │
-│ └──────────────────────────────────────────────────────────────┘ │
-│                                                                  │
-│ ┌──────────────────────────────────────────────────────────────┐ │
-│ │ 2026-02-17 11:00 — admin@personus.ai                        │ │
-│ │ Changed: "openai/gpt-4o" → "openai/gpt-4o-mini"            │ │
-│ └──────────────────────────────────────────────────────────────┘ │
-│                                                                  │
-│ ┌──────────────────────────────────────────────────────────────┐ │
-│ │ 2026-02-15 — System                                         │ │
-│ │ Initialized with default: "openai/gpt-4o"                   │ │
-│ └──────────────────────────────────────────────────────────────┘ │
-└──────────────────────────────────────────────────────────────────┘
-```
+When settings audit logging is added, it should write rows to `audit_log` with:
+- `kind: 'admin.setting_updated'` or `'admin.setting_reset'`
+- `reasonCode: key` (the setting key, e.g. `ai.coach_model`)
+- `metadata: { category, valueType, before, after, wasDefault, isDefault }`
+- `createdBy: principal.userId ?? 'system'`
 
 ### Stories
 
 | ID | Story | Notes |
 |----|-------|-------|
-| 5.1 | System logs an audit entry when an admin updates a setting | `admin_audit_log` row with action `setting_updated`. Before/after JSONB values. Metadata includes category and default status. |
-| 5.2 | System logs an audit entry when an admin resets a setting to default | `admin_audit_log` row with action `setting_reset`. After value equals defaultValue. |
-| 5.3 | Admin can view the change history for a specific setting | History slide-over shows all audit entries for `entityType: 'system_setting'` and `entityId: key`. Ordered by `createdAt` descending. |
+| 5.1 | System logs an audit entry when an admin updates a setting | Write to `audit_log` with `kind: 'admin.setting_updated'`. Before/after in `metadata`. Not yet shipped. |
+| 5.2 | System logs an audit entry when an admin resets a setting to default | Write to `audit_log` with `kind: 'admin.setting_reset'`. Not yet shipped. |
+| 5.3 | Admin can view the change history for a specific setting | Query `audit_log` by `reason_code` (setting key). Not yet shipped. |
 
 ### Edge Cases
 
 - [ ] Admin updates a setting to the same value it already has -- still logged (idempotent write, before === after). Harmless but visible in history.
-- [ ] Admin account deleted after making changes -- audit log preserves the `adminUserId`. UI shows "Unknown admin" if the Clerk account no longer resolves.
+- [ ] Admin account deleted after making changes -- audit log preserves the `createdBy` tag. UI shows the raw tag if the Clerk account no longer resolves.
 - [ ] Very frequent changes to the same setting (e.g., rate limit tuning) -- no aggregation or deduplication. Each change is a separate log entry.
-- [ ] Audit log grows large (years of operation) -- pagination required. Index on `(entity_type, entity_id, created_at DESC)` supports efficient per-setting queries.
+- [ ] Audit log grows large (years of operation) -- pagination required. Index on `(kind, created_at DESC)` supports efficient per-kind queries.
 
 ### Test Criteria
 
-**Unit tests:**
-- `updateSetting()` creates an audit log entry with correct before/after values
-- `resetSetting()` creates an audit log entry with action `setting_reset`
+**Unit tests (when implemented):**
+- `updateSystemSetting()` creates an audit log entry with correct before/after in metadata
 - Audit entry `metadata.wasDefault` and `metadata.isDefault` are correctly computed
 
-**Integration tests:**
+**Integration tests (when implemented):**
 - Multiple changes to the same setting produce multiple audit entries in correct order
-- Audit entries are queryable by `entityId` (setting key) and ordered by `createdAt`
+- Audit entries are queryable by `reasonCode` (setting key)
 
 ---
 
-## 6. Implementation Order
+## 6. Implementation Status
 
-### Phase 1: Schema & Seed (foundation -- no UI)
+### Shipped
 
-1. Create `packages/db/src/schema/system-settings.ts` with table definition and types (story 1.1)
-2. Create `packages/db/src/schema/admin-audit-log.ts` with table definition and types (story 5.1)
-3. Export both new tables from `packages/db/src/schema/index.ts` (story 1.1)
-4. Push schema to database via `db:push` (story 1.2)
-5. Create `packages/db/src/seed/system-settings.ts` with all 30 initial settings (stories 2.1, 2.2)
-6. Wire seed script into the main seed runner (story 2.2)
-7. Run seed to populate settings table (story 2.3)
+- `packages/db/src/schema/system-settings.ts` — `system_settings` table schema and types (story 1.1) ✓
+- `packages/db/src/schema/index.ts` — exports `systemSettings` (story 1.1) ✓
+- `packages/db/src/seed/system-settings.ts` — 30 initial settings, idempotent upsert (stories 2.1, 2.2) ✓
+- `packages/db/src/settings-cache.ts` — `getSetting()`, `getSettings()`, `invalidateSetting()`, `invalidateSettingsCache()` (stories 4.2, 4.3, 4.4, 4.5, 4.6) ✓
+- `packages/db/src/services/settings.service.ts` — `listSystemSettings()`, `updateSystemSetting()`, `coerceSettingValue()` (stories 3.7, 4.2) ✓
+- `apps/admin/app/settings/page.tsx` — system settings page (non-features, stories 3.1, 3.3, 3.4, 3.7) ✓
+- `apps/admin/app/settings/actions.ts` — `updateSettingAction` (story 3.7) ✓
+- `apps/admin/app/flags/page.tsx` — feature flags page (story 3.5) ✓
+- `apps/admin/app/flags/actions.ts` — `toggleFlagAction` (story 3.5) ✓
+- `apps/admin/app/lib/require-admin.ts` — `getAdminPrincipal()`, `requireAdmin()` ✓
 
-### Phase 2: Read API (enables consumer app migration)
+### Not Yet Shipped
 
-8. Create `packages/db/src/settings.ts` with `getSetting()`, `getSettings()`, `initSettings()`, cache logic (stories 4.1, 4.2, 4.3, 4.4)
-9. Create `packages/validations/src/settings.ts` with Zod schemas (story 3.7)
-10. Write unit tests for `getSetting()` caching behavior and fallback logic (story 4.6)
-11. Call `initSettings(db)` in consumer app layout (story 4.1) -- requires step 8
-
-### Phase 3: Consumer app migration (incremental, one file at a time)
-
-12. Replace hardcoded model strings in `lib/mastra/agents/persona-coach.ts` with `getSetting()` (story 4.7)
-13. Replace hardcoded model strings in `lib/mastra/agents/recommender-and-discovery.ts` with `getSetting()` (story 4.7)
-14. Replace hardcoded model in `lib/embeddings/index.ts` with `getSetting()` (story 4.7)
-15. Replace hardcoded rate limits in import actions with `getSetting()` (story 4.7)
-16. Add feature flag checks to gated server actions (story 4.7)
-17. Pass feature flags from dashboard layout to client components (story 4.7)
-
-### Phase 4: Admin UI
-
-18. Create `apps/admin/app/actions/settings.ts` with `listSettings()`, `updateSetting()`, `resetSetting()` server actions (stories 3.7, 3.8)
-19. Wire audit logging into `updateSetting()` and `resetSetting()` (stories 5.1, 5.2)
-20. Create `apps/admin/components/setting-card.tsx` with type-specific input rendering (stories 3.3, 3.4, 3.5, 3.6)
-21. Create `apps/admin/components/settings-category.tsx` grouping component (story 3.1)
-22. Create `apps/admin/components/settings-tabs.tsx` tab navigation (story 3.2)
-23. Create `apps/admin/components/modified-settings-summary.tsx` (story 3.9)
-24. Create `apps/admin/components/settings-client.tsx` composing all sub-components (story 3.1)
-25. Create `apps/admin/app/settings/page.tsx` server component with data fetching (story 3.1)
-26. Create setting history slide-over component (story 5.3) -- requires step 19
-
-### Phase 5: Tests
-
-27. Write integration tests for `updateSetting()` + audit log (stories 5.1, 5.2)
-28. Write integration tests for cache invalidation across read/write cycle (story 4.5)
-29. Write E2E tests for admin settings page (stories 3.1-3.10)
+- Settings audit logging to `audit_log` (stories 5.1, 5.2, 5.3) — service does not write audit entries
+- Reset to default action (story 3.8)
+- Modified settings summary (story 3.9)
+- Category tab navigation (story 3.2)
+- Setting history slide-over (story 5.3)
+- E2E tests for admin settings page (stories 3.1–3.10)
 
 ---
 
 ## Appendix: Linear Issue Mapping
 
-| Story ID | Linear Issue Title | Labels | Blocked By | Estimate |
-|----------|--------------------|--------|------------|----------|
-| 1.1 | Define system_settings table schema in shared DB package | `platform-ops`, `schema` | -- | -- |
-| 1.2 | Push system_settings table to database | `platform-ops`, `schema` | 1.1 | -- |
-| 1.3 | Create settings seed script with factory defaults | `platform-ops`, `seed` | 1.1 | -- |
-| 2.1 | Define all initial settings in typed seed registry | `platform-ops`, `seed` | 1.1 | -- |
-| 2.2 | Implement idempotent seed logic preserving admin overrides | `platform-ops`, `seed` | 2.1 | -- |
-| 2.3 | Add new setting by adding one entry to SETTINGS array | `platform-ops`, `seed` | 2.1 | -- |
-| 3.1 | Admin can view all system settings grouped by category | `platform-ops`, `admin-ui` | 4.1 | -- |
+| Story ID | Linear Issue Title | Labels | Blocked By | Shipped |
+|----------|--------------------|--------|------------|---------|
+| 1.1 | Define system_settings table schema in shared DB package | `platform-ops`, `schema` | -- | ✓ |
+| 1.2 | Push system_settings table to database | `platform-ops`, `schema` | 1.1 | ✓ |
+| 1.3 | Create settings seed script with factory defaults | `platform-ops`, `seed` | 1.1 | ✓ |
+| 2.1 | Define all initial settings in typed seed registry | `platform-ops`, `seed` | 1.1 | ✓ |
+| 2.2 | Implement idempotent seed logic preserving admin overrides | `platform-ops`, `seed` | 2.1 | ✓ |
+| 2.3 | Add new setting by adding one entry to SETTINGS array | `platform-ops`, `seed` | 2.1 | ✓ |
+| 3.1 | Admin can view all system settings grouped by category | `platform-ops`, `admin-ui` | -- | ✓ |
 | 3.2 | Admin can filter settings by category using tabs | `platform-ops`, `admin-ui` | 3.1 | -- |
-| 3.3 | Admin can edit a number setting with a number input | `platform-ops`, `admin-ui` | 3.1 | -- |
-| 3.4 | Admin can edit a string setting with a text input | `platform-ops`, `admin-ui` | 3.1 | -- |
-| 3.5 | Admin can toggle a boolean setting with a switch | `platform-ops`, `admin-ui` | 3.1 | -- |
+| 3.3 | Admin can edit a number setting with a number input | `platform-ops`, `admin-ui` | 3.1 | ✓ |
+| 3.4 | Admin can edit a string setting with a text input | `platform-ops`, `admin-ui` | 3.1 | ✓ |
+| 3.5 | Admin can toggle a boolean setting with a switch | `platform-ops`, `admin-ui` | 3.1 | ✓ |
 | 3.6 | Admin can edit a JSON setting with a validated textarea | `platform-ops`, `admin-ui` | 3.1 | -- |
-| 3.7 | Admin can save a setting change with per-field save | `platform-ops`, `admin-ui` | 3.3, 3.4, 3.5, 3.6 | -- |
+| 3.7 | Admin can save a setting change with per-field save | `platform-ops`, `admin-ui` | 3.3, 3.4, 3.5 | ✓ |
 | 3.8 | Admin can reset a setting to factory default | `platform-ops`, `admin-ui` | 3.7 | -- |
 | 3.9 | Admin can see which settings have been modified from defaults | `platform-ops`, `admin-ui` | 3.1 | -- |
 | 3.10 | Admin can see when and by whom a setting was last changed | `platform-ops`, `admin-ui` | 3.1 | -- |
-| 4.1 | Initialize settings reader with DB connection at app startup | `platform-ops`, `read-api` | 1.1 | -- |
-| 4.2 | Read a single setting with typed fallback via getSetting() | `platform-ops`, `read-api` | 4.1 | -- |
-| 4.3 | Read all settings for a category via getSettings() | `platform-ops`, `read-api` | 4.1 | -- |
-| 4.4 | Cache settings in-memory with configurable TTL | `platform-ops`, `read-api` | 4.2 | -- |
-| 4.5 | Admin app can invalidate cache after writing a setting | `platform-ops`, `read-api` | 4.4 | -- |
-| 4.6 | Consumer app reads settings before settings table exists | `platform-ops`, `read-api` | 4.2 | -- |
+| 4.1 | Settings cache uses module-level DB import (no init ceremony) | `platform-ops`, `read-api` | 1.1 | ✓ |
+| 4.2 | Read a single setting with typed fallback via getSetting() | `platform-ops`, `read-api` | 4.1 | ✓ |
+| 4.3 | Read all settings for a category via getSettings() | `platform-ops`, `read-api` | 4.1 | ✓ |
+| 4.4 | Cache settings in-memory with configurable TTL | `platform-ops`, `read-api` | 4.2 | ✓ |
+| 4.5 | Admin app can invalidate cache after writing a setting | `platform-ops`, `read-api` | 4.4 | ✓ |
+| 4.6 | Consumer app reads settings before settings table exists | `platform-ops`, `read-api` | 4.2 | ✓ |
 | 4.7 | Migrate hardcoded values to getSetting() calls | `platform-ops`, `migration` | 4.2 | -- |
 | 5.1 | System logs audit entry when admin updates a setting | `platform-ops`, `audit` | 3.7 | -- |
 | 5.2 | System logs audit entry when admin resets a setting | `platform-ops`, `audit` | 3.8 | -- |
@@ -1201,5 +982,5 @@ Setting history slide-over:
 **Conventions:**
 - Story titles follow "Actor can DO THING" format for user-facing stories and imperative form for system/developer stories
 - Labels include the spec suite (`platform-ops`) and feature area (`schema`, `seed`, `admin-ui`, `read-api`, `migration`, `audit`)
-- Blocked By reflects story dependencies -- matches implementation order
-- Estimates are filled in during implementation planning, not during spec writing
+- Blocked By reflects story dependencies
+- Shipped ✓ = code exists in main; -- = not yet implemented
