@@ -10,8 +10,8 @@ timestamp: 2026-02-24
 # Platform & Operations — Product Requirements Document
 
 > Date: 2026-02-24
-> Status: Draft
-> Suite: `docs/specs/platform-ops/`
+> Status: Current
+> Suite: `docs/domains/platform-ops/`
 
 ## 1. Core Thesis
 
@@ -150,12 +150,12 @@ No circular dependencies. The `auth` → `db` dependency uses dynamic `await imp
 
 | # | File | Status | Summary |
 |---|------|--------|---------|
-| 00 | **`00-prd.md`** (this file) | Draft | Vision, monorepo architecture, admin boundary, code inventory |
-| 01 | **`01-monorepo-migration.md`** | Draft | Turborepo setup, package structure, Vercel config, migration plan |
-| 02 | **`02-taxonomy-admin.md`** | Draft | Taxonomy CRUD, bulk ops, cache invalidation, audit |
-| 03 | **`03-trait-metadata-admin.md`** | Draft | Metadata editing (safe properties), reordering, flag toggles |
-| 04 | **`04-system-settings.md`** | Draft | Settings table, rate limits, feature flags, weights, AI config |
-| 05 | **`05-user-and-community-ops.md`** | Draft | User management, community moderation, audit log, impersonation |
+| 00 | **`00-prd.md`** (this file) | Current | Vision, monorepo architecture, admin boundary, code inventory |
+| 01 | **`01-monorepo-migration.md`** | Current | Turborepo setup, package structure, Vercel config, migration plan |
+| 02 | **`02-taxonomy-admin.md`** | Planned | Taxonomy CRUD, bulk ops, cache invalidation, audit |
+| 03 | **`03-trait-metadata-admin.md`** | Planned | Metadata editing (safe properties), reordering, flag toggles |
+| 04 | **`04-system-settings.md`** | Current | Settings table, rate limits, feature flags, weights, AI config |
+| 05 | **`05-user-and-community-ops.md`** | Planned | User management, community moderation, audit log, impersonation |
 
 ## 9. Implementation Priority
 
