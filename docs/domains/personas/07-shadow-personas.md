@@ -83,9 +83,9 @@ app/(dashboard)/communities/[id]/page.tsx          <-- EXISTS: community detail 
        +-- components/ui/badge.tsx                  <-- EXISTS
        +-- components/ui/button.tsx                 <-- EXISTS
        +-- components/share-claim-link.tsx           <-- NEW: copy-to-clipboard claim URL
-       +-- calls: app/actions/shadows.ts
-            +-- createShadowAction()                <-- EXISTS
-            +-- reads/writes: lib/db/schema/shadow-personas.ts
+       +-- calls: packages/db/src/services/mutations.ts
+            +-- createShadowPersona()              <-- SHIPPED (integration-tested)
+            +-- reads/writes: packages/db/src/schema/shadow-personas.ts
 ```
 
 The service function `createShadowPersona` exists in `packages/db/src/services/mutations.ts` and is integration-tested. The UI surface (creation dialog and share-link component) is not yet shipped.
