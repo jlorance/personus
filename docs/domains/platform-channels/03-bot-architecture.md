@@ -9,7 +9,7 @@ timestamp: 2026-02-23
 
 # Platform Integrations — Bot Architecture
 
-> **Reconciliation note (2026-07-24):** The shipped build replaced the heavyweight `integrations` table with the lean `platform_channel_bindings` table (community_id, platform, external ref, installed_by, status, tokens). Mastra's first-class Channels own routing / threading / memory. `integrations`-table references below have been renamed; some surrounding prose still describes the pre-reconciliation design and is superseded by `packages/db/src/schema/platform-channels.ts`.
+> **Reconciliation note (2026-07-29):** Section 7 (Community Mapping) has been rewritten to match the shipped `resolveBoundCommunity` function. The `integrations` table no longer exists. The community resolver now queries `platformChannelBindings` using `externalRef` (not `platformEntityId`). The webhook route is the unified `/api/channels/[platform]/webhook` — not the per-platform routes described in the architecture diagram in §2.2 (which remains an accurate description of the *design intent* but the routes that shipped differ; see `apps/web/app/api/channels/[platform]/webhook/route.ts`). Sections §§4-6 and §§8-13 describe future infrastructure work (Fly.io, Matrix Appservice, rate limiting, health monitoring) that has not yet shipped.
 
 > Date: 2026-02-23 (revised 2026-05-11)
 > Status: Draft — hosting decision made; **Mastra Channels adopted as implementation vehicle for Tier 1-3**
@@ -511,45 +511,42 @@ Each platform adapter is responsible only for:
 
 ## 7. Room/Channel → Community Mapping
 
-The bot needs to know which Personus community a platform room/channel belongs to. This is resolved via the `platform_channel_bindings` table.
+The bot needs to know which Personus community a platform room/channel belongs to. This is resolved via `resolveBoundCommunity` in `packages/db/src/services/platform-channels.ts` — the shipped function, not a hand-rolled query.
 
 ```typescript
-// services/bot/shared/community-resolver.ts
-import { db } from '@/lib/db';
-import { integrations } from '@/lib/db/schema';
-import { eq, and } from 'drizzle-orm';
-import type { IntegrationConfig } from '@/types';
-
-async function getCommunityForPlatformEntity(
+// The shipped entry point (packages/db/src/services/platform-channels.ts)
+export async function resolveBoundCommunity(
   platform: string,
-  entityId: string,
-): Promise<string | null> {
-  const rows = await db
-    .select({ communityId: integrations.communityId, config: integrations.config })
-    .from(integrations)
+  externalRef: string,
+): Promise<{ communityId: string } | null> {
+  const [b] = await db
+    .select({ communityId: platformChannelBindings.communityId })
+    .from(platformChannelBindings)
     .where(
       and(
-        eq(integrations.platform, platform),
-        eq(integrations.platformEntityId, entityId),
+        eq(platformChannelBindings.platform, platform),
+        eq(platformChannelBindings.externalRef, externalRef),
+        eq(platformChannelBindings.status, 'active'),
+        isNull(platformChannelBindings.deletedAt),
       ),
-    );
-
-  return rows[0]?.communityId ?? null;
-}
-
-// Platform-specific resolvers
-async function getCommunityForMatrixRoom(roomId: string) {
-  // Matrix rooms may be nested inside a Space
-  // Check direct room match first, then Space membership
-  return getCommunityForPlatformEntity('matrix', roomId);
-}
-
-async function getCommunityForDiscordGuild(guildId: string) {
-  return getCommunityForPlatformEntity('discord', guildId);
+    )
+    .limit(1);
+  return b ? { communityId: String(b.communityId) } : null;
 }
 ```
 
-For the serverless endpoints (Slack, Telegram, Discord HTTP), this same resolution logic lives in `lib/` and is imported by both the API routes and the bot process.
+**Key differences from the earlier design:**
+
+- Query target: `platformChannelBindings` (not `integrations`)
+- Lookup key: `externalRef` (not `platformEntityId` / `platformEntityName`)
+- Filter: `status = 'active'` **and** `deleted_at IS NULL` — revoked bindings are invisible to the webhook
+- Return type: `{ communityId: string } | null` — returns the stringified bigint community id or null
+
+The webhook route (`apps/web/app/api/channels/[platform]/webhook/route.ts`) calls `handlePlatformMessage` from `@personus/ai`, which in turn calls `resolveBoundCommunity`. Channel adapters do not need to perform the lookup directly.
+
+**Matrix** does not use this resolver — Matrix community links are stored in `communities.externalPlatforms` JSONB, not in `platform_channel_bindings`. The Matrix Appservice (if/when built) would implement its own room→community lookup against that JSONB column.
+
+> **Do not reference** `integrations.platformEntityId`, `integrations.config`, or the old `getCommunityForPlatformEntity` helper — the `integrations` table no longer exists.
 
 ---
 

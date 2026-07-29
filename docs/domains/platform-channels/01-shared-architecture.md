@@ -9,7 +9,7 @@ timestamp: 2026-02-23
 
 # Platform Integrations — Shared Architecture
 
-> **Reconciliation note (2026-07-24):** The shipped build replaced the heavyweight `integrations` table with the lean `platform_channel_bindings` table (community_id, platform, external ref, installed_by, status, tokens). Mastra's first-class Channels own routing / threading / memory. `integrations`-table references below have been renamed; some surrounding prose still describes the pre-reconciliation design and is superseded by `packages/db/src/schema/platform-channels.ts`.
+> **Reconciliation note (2026-07-29):** Sections 1–5 of this spec have been rewritten to match the shipped code. The old `integrations` table and its associated constants (`INTEGRATION_PLATFORMS`, `INTEGRATION_STATUSES`), types (`IntegrationConfig`), and server actions no longer exist. The canonical sources of truth are `packages/constants/src/index.ts`, `packages/db/src/schema/platform-channels.ts`, and `packages/db/src/services/platform-channels.ts`. Sections 6–10 describe future UI, MCP, security, and testing work that has not yet shipped.
 
 > Date: 2026-02-23
 > Status: Draft — awaiting review
@@ -22,523 +22,238 @@ This spec contains everything that is **platform-agnostic** — the shared found
 
 ## 1. Constants
 
-### File: `lib/constants.ts`
+### File: `packages/constants/src/index.ts` (shipped)
+
+The three bot-surface platforms are declared in the shared constants package. "Channel" concepts are deliberately namespaced — see CLAUDE.md.
 
 ```typescript
-// ─── Integration Platforms (platforms with operational integrations) ──
-export const INTEGRATION_PLATFORMS = ['slack', 'discord', 'matrix', 'telegram'] as const;
-export type IntegrationPlatform = (typeof INTEGRATION_PLATFORMS)[number];
-
-export const INTEGRATION_PLATFORM_LABELS: Record<IntegrationPlatform, string> = {
-  slack: 'Slack',
-  discord: 'Discord',
-  matrix: 'Matrix / Element',
-  telegram: 'Telegram',
-};
-
-// ─── Integration Statuses ────────────────────────────────────────────
-export const INTEGRATION_STATUSES = ['pending', 'active', 'disconnected', 'error'] as const;
-export type IntegrationStatus = (typeof INTEGRATION_STATUSES)[number];
-
-// ─── External Platform Types (all linkable platforms) ────────────────
-export const EXTERNAL_PLATFORM_TYPES = [
-  // Communication
-  'matrix', 'discord', 'slack', 'telegram', 'whatsapp', 'signal',
-  // Social / Public
-  'bluesky', 'instagram', 'youtube', 'threads', 'mastodon',
-  // Web
-  'website', 'other',
-] as const;
-export type ExternalPlatformType = (typeof EXTERNAL_PLATFORM_TYPES)[number];
-
-export const EXTERNAL_PLATFORM_LABELS: Record<ExternalPlatformType, string> = {
-  matrix: 'Matrix / Element',
-  discord: 'Discord',
-  slack: 'Slack',
-  whatsapp: 'WhatsApp',
-  signal: 'Signal',
-  bluesky: 'Bluesky',
-  instagram: 'Instagram',
-  youtube: 'YouTube',
-  threads: 'Threads',
-  mastodon: 'Mastodon',
-  telegram: 'Telegram',
-  website: 'Website',
-  other: 'Other',
-};
+/** PlatformChannels — Mastra `channels` primitive targets (bot surfaces). */
+export const PLATFORM_CHANNELS = ['slack', 'discord', 'telegram'] as const;
+export type PlatformChannel = (typeof PLATFORM_CHANNELS)[number];
 ```
 
-Also fix the stale `COMMUNITY_TYPES` constant to match the 9 seed slugs:
+**Matrix is not in `PLATFORM_CHANNELS`.** Mastra Channels has no Matrix adapter; Matrix bots run via a separate Appservice process (see `03-bot-architecture.md §5`). Matrix community links are stored as `externalPlatforms` JSONB on the community record but do not create a `platform_channel_bindings` row.
+
+The AI package re-exports the canonical type as `PlatformChannelName`:
 
 ```typescript
-// REPLACE the existing COMMUNITY_TYPES
-export const COMMUNITY_TYPES = [
-  'club', 'organization', 'friends', 'guild', 'workplace',
-  'customer', 'neighborhood', 'event', 'educational',
-] as const;
-export type CommunityType = (typeof COMMUNITY_TYPES)[number];
+// packages/ai/src/platform-channels.ts
+export type PlatformChannelName = 'slack' | 'discord' | 'telegram';
 ```
+
+**Binding statuses** (stored as plain `text` in the schema):
+
+```
+'pending'   — installed, awaiting first successful message round-trip
+'active'    — bot is connected and responding
+'revoked'   — community admin revoked the binding (soft-deleted)
+```
+
+> Note: `'disconnected'` and `'error'` from the earlier design are not used. A binding is either active or revoked; transient connection errors are not persisted to the binding row.
 
 ---
 
 ## 2. Types
 
-### File: `types/index.ts` (additions)
+### Adapter config (shipped)
+
+The shipped schema stores adapter credentials and config in a single opaque `adapterConfig` JSONB column rather than a typed `IntegrationConfig` interface. The shape is whatever the chosen Mastra chat-adapter needs — no schema churn when a new adapter is wired.
+
+The service layer view type for a bound channel is:
 
 ```typescript
-import type { ExternalPlatformType } from '@/lib/constants';
-
-// ─── External Platform Link (stored in communities.externalPlatforms JSONB) ─
-// Generic enough for all 12 platform types. Platform-specific fields are optional;
-// only the relevant ones are populated per platform.
-export interface ExternalPlatformLink {
-  platform: ExternalPlatformType;
-  label?: string;              // user-facing name, e.g. "Our Matrix Space"
-  url?: string;                // public link (joinable URL, profile URL, invite URL)
-  handle?: string;             // username/handle (@user, @user:server, @user@instance)
-  description?: string;        // free text description
-
-  // Matrix-specific
-  spaceId?: string;            // Matrix Space room ID (!...:server)
-  roomId?: string;             // Matrix room ID (!...:server)
-  homeserver?: string;         // homeserver domain (matrix.org, etc.)
-  roomAlias?: string;          // human-readable alias (#room:server)
-
-  // Discord-specific
-  guildId?: string;            // Discord guild/server ID
-  inviteCode?: string;         // Discord invite code
-
-  // Slack-specific
-  workspaceId?: string;        // Slack workspace ID (T...)
-  channelId?: string;          // Slack channel ID (C...)
-
-  // Telegram-specific
-  chatId?: string;             // Supergroup ID (negative number, stored as string)
-
-  // AT Protocol (Bluesky, future)
-  did?: string;                // did:plc:...
-}
-
-// ─── Integration Config (stored in integrations.config JSONB) ───────
-export interface IntegrationConfig {
-  // Shared across all platforms
-  autoSync: boolean;           // auto-sync membership changes
-  allowPublicSearch: boolean;  // allow non-members to search via bot
-  notifyChannel?: string;      // channel/room for bot notifications (webhook URL for Hookshot)
-
-  // Matrix-specific
-  matrixBotUserId?: string;    // @personus-bot:server MXID after join
-  monitoredRoomIds?: string[]; // specific rooms to observe (default: all in Space)
-  syncMembership?: boolean;    // sync Matrix room members to Personus community
-
-  // Slack-specific
-  slackTeamName?: string;
-
-  // Discord-specific
-  discordGuildName?: string;
-
-  // Telegram-specific
-  telegramChatId?: number;         // Supergroup ID (negative number)
-  telegramBotIsAdmin?: boolean;    // Whether bot has admin privileges
-  telegramTopicsEnabled?: boolean; // Whether group has Topics
-  telegramPersonusTopicId?: number; // Dedicated Personus topic ID
+// packages/db/src/services/platform-channels.ts
+export interface BindingView {
+  publicId: string;    // pcb_<nanoid17>
+  communityId: string; // stringified bigint
+  platform: string;    // 'slack' | 'discord' | 'telegram'
+  externalRef: string; // platform-native container id
+  status: string;      // 'pending' | 'active' | 'revoked'
 }
 ```
+
+### External Platform Link (future — `communities.externalPlatforms` JSONB)
+
+A separate, lighter JSON structure covers platforms that are linked but not bot-enabled (Matrix, WhatsApp, Signal, Bluesky, Instagram, YouTube, Threads, Mastodon, Website). This is future UI work; no schema change is needed — `communities.externalPlatforms` is already a JSONB column.
+
+```typescript
+// Proposed shape — not yet enforced by a schema type
+export interface ExternalPlatformLink {
+  platform: string;        // any of the 13 platform slugs from 00-prd §6
+  label?: string;
+  url?: string;
+  handle?: string;         // @user, @user:server, @user@instance
+  description?: string;
+  // Matrix-specific
+  spaceId?: string; roomId?: string; homeserver?: string; roomAlias?: string;
+  // Discord-specific
+  guildId?: string; inviteCode?: string;
+  // Slack-specific
+  workspaceId?: string; channelId?: string;
+  // Telegram-specific
+  chatId?: string;
+  // AT Protocol
+  did?: string;
+}
+```
+
+> `IntegrationConfig` (the old complex type with `autoSync`, `allowPublicSearch`, `matrixBotUserId`, etc.) has been replaced by the opaque `adapterConfig` JSONB. Do not reintroduce the old type.
 
 ---
 
 ## 3. Database Schema
 
-### File: `lib/db/schema/integrations.ts` (refactor)
+### File: `packages/db/src/schema/platform-channels.ts` (shipped)
 
-The current table has platform-specific columns (`slackWorkspaceId`, `discordGuildId`). Refactor to a generic model with `platformEntityId` + `config` JSONB.
+The old `integrations` table is gone. The shipped table is lean: Mastra owns routing / threading / memory, so we only persist the binding + adapter config handle.
 
 ```typescript
-import { pgTable, uuid, text, jsonb, timestamp, index } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { bigint, index, jsonb, pgTable, text, timestamp, unique } from 'drizzle-orm/pg-core';
+import { baseFields } from './_factory';
 import { communities } from './communities';
-import { users } from './users';
 
-export const integrations = pgTable(
-  'integrations',
+/**
+ * PlatformChannelBindings — the lean binding record for the PlatformChannels
+ * concept (one of the three de-conflated "channel" ideas; see the founding plan).
+ * Replaces the old heavyweight `integrations` table.
+ *
+ * Mastra's first-class `channels` primitive (@mastra/core ≥1.22) owns webhook
+ * routing, threading, dedup, and per-thread memory for Slack / Discord / Telegram
+ * bots. We no longer hand-roll that plumbing, so all we need to persist is which
+ * community is bound to which platform channel and the minimal install/credential
+ * metadata. Mastra owns the rest.
+ *
+ * public_id `pcb_<nanoid17>`. CASCADE on communityId.
+ */
+export const platformChannelBindings = pgTable(
+  'platform_channel_bindings',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
-    communityId: uuid('community_id')
-      .references(() => communities.id)
+    ...baseFields('pcb'),
+    communityId: bigint('community_id', { mode: 'bigint' })
+      .references(() => communities.id, { onDelete: 'cascade' })
       .notNull(),
-    platform: text('platform').notNull(),          // 'slack' | 'discord' | 'matrix'
-    status: text('status').notNull().default('pending'), // pending | active | disconnected | error
-    platformEntityId: text('platform_entity_id'),  // primary platform identifier
-    //   Slack: workspace ID (T...)
-    //   Discord: guild ID
-    //   Matrix: Space room ID (!...:server) or room alias
-    platformEntityName: text('platform_entity_name'), // human-readable name
-    config: jsonb('config').notNull().default('{}'),   // IntegrationConfig
-    accessToken: text('access_token'),             // encrypted at rest (TODO: implement encryption)
-    refreshToken: text('refresh_token'),
-    botUserId: text('bot_user_id'),                // platform-specific bot identity
-    //   Slack: bot user ID (U...)
-    //   Discord: bot user ID
-    //   Matrix: bot MXID (@personus-bot:server)
-    installedBy: uuid('installed_by')
-      .references(() => users.id)
-      .notNull(),
-    installedAt: timestamp('installed_at').defaultNow(),
-    updatedAt: timestamp('updated_at').defaultNow(),
-    lastSyncAt: timestamp('last_sync_at'),         // last successful membership/activity sync
-    errorMessage: text('error_message'),           // populated when status = 'error'
+    // 'slack' | 'discord' | 'telegram' — see PLATFORM_CHANNELS in @personus/constants.
+    platform: text('platform').notNull(),
+    // Platform-native container id the bot is bound to (Slack channel id,
+    // Discord guild/channel id, Telegram chat id). What Mastra's adapter keys on.
+    externalRef: text('external_ref').notNull(),
+    status: text('status').notNull().default('pending'), // 'pending' | 'active' | 'revoked'
+    // Opaque adapter config / credential handle. Kept as JSONB so the shape can
+    // follow whatever the chosen Mastra chat-adapter needs, without schema churn.
+    adapterConfig: jsonb('adapter_config').notNull().default(sql`'{}'::jsonb`),
+    installedBy: text('installed_by').notNull(), // 'user:<userId>' tag — not a FK
+    installedAt: timestamp('installed_at', { withTimezone: true }).defaultNow(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
   },
   (table) => [
-    index('idx_integrations_community').on(table.communityId),
-    index('idx_integrations_platform').on(table.platform),
-    index('idx_integrations_status').on(table.status),
+    unique('uq_platform_channel_bindings_platform_ref').on(table.platform, table.externalRef),
+    index('idx_platform_channel_bindings_community')
+      .on(table.communityId)
+      .where(sql`deleted_at IS NULL`),
   ],
 );
 
-export type Integration = typeof integrations.$inferSelect;
-export type NewIntegration = typeof integrations.$inferInsert;
+export type PlatformChannelBinding = typeof platformChannelBindings.$inferSelect;
+export type NewPlatformChannelBinding = typeof platformChannelBindings.$inferInsert;
 ```
 
-**Also remove** from this file (if present): `queryLogs` table. Verify it's re-homed or still needed.
+**Key differences from the old `integrations` design:**
 
-**Migration:** `bun run db:push` (pre-production, no data to preserve).
+| Old | Shipped |
+|-----|---------|
+| `uuid` PK | `baseFields('pcb')` — bigint PK + `publicId` (`pcb_<nanoid17>`) + soft-delete fields |
+| `platformEntityId` + `platformEntityName` | Single `externalRef` (platform-native container id) |
+| `config` JSONB + `accessToken` + `refreshToken` + `botUserId` | Single `adapterConfig` JSONB (opaque) |
+| `updatedAt` + `lastSyncAt` + `errorMessage` | `revokedAt` only (baseFields carries `updatedAt`) |
+| `installedBy uuid → users.id` (FK) | `installedBy text` — `'user:<userId>'` tag, no FK |
+| Status: `pending\|active\|disconnected\|error` | Status: `pending\|active\|revoked` |
+| Indexes on `communityId`, `platform`, `status` | Unique on `(platform, externalRef)`; partial index on `communityId` where `deleted_at IS NULL` |
+| `'matrix'` in platform list | Matrix not in `PLATFORM_CHANNELS` — no Mastra Channels adapter for Matrix |
 
 ---
 
 ## 4. Validation Schemas
 
-### File: `lib/validations/integrations.ts` (new)
+The shipped service layer (`packages/db/src/services/platform-channels.ts`) validates inputs in TypeScript via function signatures rather than a separate Zod schema file. The key service input shape for binding a channel:
 
 ```typescript
-import { z } from 'zod';
-import { EXTERNAL_PLATFORM_TYPES, INTEGRATION_PLATFORMS, INTEGRATION_STATUSES } from '@/lib/constants';
-
-// ─── External Platform Link ─────────────────────────────────────────
-export const externalPlatformLinkSchema = z
-  .object({
-    platform: z.enum(EXTERNAL_PLATFORM_TYPES),
-    label: z.string().max(100).optional(),
-    url: z.string().url().optional(),
-    // Slack
-    workspaceId: z.string().optional(),
-    channelId: z.string().optional(),
-    // Discord
-    guildId: z.string().optional(),
-    inviteCode: z.string().optional(),
-    // Matrix
-    spaceId: z.string().optional(),
-    roomId: z.string().optional(),
-    homeserver: z.string().optional(),
-    roomAlias: z.string().optional(),
-    // Telegram
-    chatId: z.string().optional(),
-    // AT Protocol
-    handle: z.string().optional(),
-    did: z.string().optional(),
-    // Generic
-    description: z.string().max(500).optional(),
-  })
-  .refine(
-    (data) => {
-      // Each platform should have at least one meaningful identifier
-      switch (data.platform) {
-        case 'matrix':
-          return !!(data.spaceId || data.roomId || data.roomAlias || data.url);
-        case 'discord':
-          return !!(data.guildId || data.inviteCode || data.url);
-        case 'slack':
-          return !!(data.workspaceId || data.url);
-        case 'telegram':
-          return !!(data.handle || data.url || data.chatId);
-        case 'whatsapp':
-        case 'signal':
-          return !!data.url; // invite link required
-        case 'bluesky':
-        case 'instagram':
-        case 'youtube':
-        case 'threads':
-        case 'mastodon':
-          return !!(data.handle || data.url);
-        case 'website':
-        case 'other':
-          return !!data.url;
-        default:
-          return !!(data.url || data.handle || data.label);
-      }
-    },
-    { message: 'Platform link requires at least one identifier (URL, handle, ID, etc.)' },
-  );
-
-// ─── Add External Platform to Community ──────────────────────────────
-export const addExternalPlatformSchema = z.object({
-  communityId: z.string().uuid(),
-  platform: externalPlatformLinkSchema,
-});
-
-export type AddExternalPlatformInput = z.infer<typeof addExternalPlatformSchema>;
-
-// ─── Remove External Platform from Community ─────────────────────────
-export const removeExternalPlatformSchema = z.object({
-  communityId: z.string().uuid(),
-  platformIndex: z.number().int().min(0),
-});
-
-export type RemoveExternalPlatformInput = z.infer<typeof removeExternalPlatformSchema>;
-
-// ─── Integration Config ──────────────────────────────────────────────
-export const integrationConfigSchema = z.object({
-  autoSync: z.boolean().default(false),
-  allowPublicSearch: z.boolean().default(false),
-  notifyChannel: z.string().optional(),
-  // Matrix
-  matrixBotUserId: z.string().optional(),
-  monitoredRoomIds: z.array(z.string()).optional(),
-  syncMembership: z.boolean().default(false),
-  // Slack
-  slackTeamName: z.string().optional(),
-  // Discord
-  discordGuildName: z.string().optional(),
-  // Telegram
-  telegramChatId: z.number().optional(),
-  telegramBotIsAdmin: z.boolean().optional(),
-  telegramTopicsEnabled: z.boolean().optional(),
-  telegramPersonusTopicId: z.number().optional(),
-});
-
-// ─── Create Integration ──────────────────────────────────────────────
-export const createIntegrationSchema = z.object({
-  communityId: z.string().uuid(),
-  platform: z.enum(INTEGRATION_PLATFORMS),
-  platformEntityId: z.string().min(1),
-  platformEntityName: z.string().max(200).optional(),
-  config: integrationConfigSchema.optional(),
-});
-
-export type CreateIntegrationInput = z.infer<typeof createIntegrationSchema>;
-
-// ─── Update Integration ──────────────────────────────────────────────
-export const updateIntegrationSchema = z.object({
-  integrationId: z.string().uuid(),
-  status: z.enum(INTEGRATION_STATUSES).optional(),
-  config: integrationConfigSchema.partial().optional(),
-  platformEntityName: z.string().max(200).optional(),
-});
-
-export type UpdateIntegrationInput = z.infer<typeof updateIntegrationSchema>;
+// packages/db/src/services/platform-channels.ts — bindPlatformChannel input
+{
+  communityId: string;           // public community id (stringified bigint)
+  platform: 'slack' | 'discord' | 'telegram';
+  externalRef: string;           // platform-native container id
+  adapterConfig?: Record<string, unknown>; // opaque — whatever the adapter needs
+}
 ```
 
-### Update barrel: `lib/validations/index.ts`
+The service enforces:
+- CASL `can('manage', 'PlatformChannel')` ability
+- Community admin membership
+- Idempotency per `(platform, externalRef)` — a second call re-activates rather than errors
+- No stealing a channel that's already `active` for a different community
 
-```typescript
-export * from './integrations';
-```
+**External platform links** (for the `communities.externalPlatforms` JSONB — future UI work) will need a Zod schema when that UI ships. The proposed shape is in §2 above. Do not use `INTEGRATION_PLATFORMS`, `INTEGRATION_STATUSES`, `createIntegrationSchema`, or `updateIntegrationSchema` — those constants and types were removed with the `integrations` table.
 
 ---
 
-## 5. Server Actions
+## 5. Service Layer
 
-### File: `app/actions/integrations.ts` (new)
+### File: `packages/db/src/services/platform-channels.ts` (shipped)
+
+The old `app/actions/integrations.ts` server actions do not exist. Binding operations are in the service layer, protected by CASL + community-admin membership (not just `serverAuth`).
 
 ```typescript
-'use server';
+// packages/db/src/services/platform-channels.ts — key function signatures
 
-import { db } from '@/lib/db';
-import { integrations, communities } from '@/lib/db/schema';
-import { serverAuth } from '@/lib/auth';
-import { eq, and } from 'drizzle-orm';
-import {
-  addExternalPlatformSchema,
-  removeExternalPlatformSchema,
-  createIntegrationSchema,
-  updateIntegrationSchema,
-  type AddExternalPlatformInput,
-  type RemoveExternalPlatformInput,
-  type CreateIntegrationInput,
-  type UpdateIntegrationInput,
-} from '@/lib/validations';
-import type { ExternalPlatformLink } from '@/types';
+/** Bind a community to a platform channel (community admin only). Idempotent per (platform, externalRef). */
+export async function bindPlatformChannel(
+  principal: ServicePrincipal,
+  input: {
+    communityId: string;
+    platform: 'slack' | 'discord' | 'telegram';
+    externalRef: string;
+    adapterConfig?: Record<string, unknown>;
+  },
+): Promise<typeof platformChannelBindings.$inferSelect>
 
-// ─── Helpers ─────────────────────────────────────────────────────────
+/** List a community's active bindings — visible to members of that community only. */
+export async function listPlatformChannels(
+  principal: ServicePrincipal,
+  communityId: string,
+): Promise<BindingView[]>
 
-async function ensureCommunityAdmin(userId: string, communityId: string) {
-  const [membership] = await db
-    .select({ role: communityMembers.role })
-    .from(communityMembers)
-    .where(
-      and(
-        eq(communityMembers.communityId, communityId),
-        eq(communityMembers.userId, userId),
-      ),
-    )
-    .limit(1);
+/** Revoke a binding (community admin only). Sets status='revoked', fills revokedAt, soft-deletes. */
+export async function revokePlatformChannel(
+  principal: ServicePrincipal,
+  bindingPublicId: string,
+): Promise<boolean>
 
-  if (!membership) throw new Error('Community not found or not a member');
-  if (membership.role !== 'admin') {
-    throw new Error('Only community admins can manage integrations');
-  }
-  return membership;
-}
+/** List ALL active bindings across every community — platform superuser only. */
+export async function listAllPlatformChannelBindings(
+  principal: ServicePrincipal,
+): Promise<BindingView[]>
 
-// ─── External Platform Links (Layer 1: JSONB on communities) ─────────
-
-export async function addExternalPlatform(raw: AddExternalPlatformInput) {
-  const session = await serverAuth.protect();
-  const data = addExternalPlatformSchema.parse(raw);
-
-  await ensureCommunityAdmin(session.userId, data.communityId);
-
-  const [community] = await db
-    .select({ externalPlatforms: communities.externalPlatforms })
-    .from(communities)
-    .where(eq(communities.id, data.communityId))
-    .limit(1);
-
-  const platforms = (community.externalPlatforms as ExternalPlatformLink[]) || [];
-  platforms.push(data.platform);
-
-  await db
-    .update(communities)
-    .set({ externalPlatforms: platforms })
-    .where(eq(communities.id, data.communityId));
-
-  return { success: true };
-}
-
-export async function removeExternalPlatform(raw: RemoveExternalPlatformInput) {
-  const session = await serverAuth.protect();
-  const data = removeExternalPlatformSchema.parse(raw);
-
-  await ensureCommunityAdmin(session.userId, data.communityId);
-
-  const [community] = await db
-    .select({ externalPlatforms: communities.externalPlatforms })
-    .from(communities)
-    .where(eq(communities.id, data.communityId))
-    .limit(1);
-
-  const platforms = (community.externalPlatforms as ExternalPlatformLink[]) || [];
-  if (data.platformIndex < 0 || data.platformIndex >= platforms.length) {
-    throw new Error('Invalid platform index');
-  }
-  platforms.splice(data.platformIndex, 1);
-
-  await db
-    .update(communities)
-    .set({ externalPlatforms: platforms })
-    .where(eq(communities.id, data.communityId));
-
-  return { success: true };
-}
-
-export async function getExternalPlatforms(communityId: string) {
-  const [community] = await db
-    .select({ externalPlatforms: communities.externalPlatforms })
-    .from(communities)
-    .where(eq(communities.id, communityId))
-    .limit(1);
-
-  if (!community) throw new Error('Community not found');
-  return (community.externalPlatforms as ExternalPlatformLink[]) || [];
-}
-
-// ─── Integrations (Layer 2: operational records) ─────────────────────
-
-export async function createIntegration(raw: CreateIntegrationInput) {
-  const session = await serverAuth.protect();
-  const data = createIntegrationSchema.parse(raw);
-
-  await ensureCommunityAdmin(session.userId, data.communityId);
-
-  // Prevent duplicates: same community + platform + entity
-  const existing = await db
-    .select({ id: integrations.id })
-    .from(integrations)
-    .where(
-      and(
-        eq(integrations.communityId, data.communityId),
-        eq(integrations.platform, data.platform),
-        eq(integrations.platformEntityId, data.platformEntityId),
-      ),
-    )
-    .limit(1);
-
-  if (existing.length > 0) {
-    throw new Error(`This ${data.platform} connection already exists for this community`);
-  }
-
-  const [integration] = await db
-    .insert(integrations)
-    .values({
-      communityId: data.communityId,
-      platform: data.platform,
-      platformEntityId: data.platformEntityId,
-      platformEntityName: data.platformEntityName || null,
-      config: data.config || { autoSync: false, allowPublicSearch: false },
-      status: 'pending',
-      installedBy: session.userId,
-    })
-    .returning();
-
-  return { success: true, integration };
-}
-
-export async function updateIntegration(raw: UpdateIntegrationInput) {
-  const session = await serverAuth.protect();
-  const data = updateIntegrationSchema.parse(raw);
-
-  const [existing] = await db
-    .select({
-      communityId: integrations.communityId,
-      config: integrations.config,
-    })
-    .from(integrations)
-    .where(eq(integrations.id, data.integrationId))
-    .limit(1);
-
-  if (!existing) throw new Error('Integration not found');
-  await ensureCommunityAdmin(session.userId, existing.communityId);
-
-  const updates: Record<string, unknown> = { updatedAt: new Date() };
-  if (data.status) updates.status = data.status;
-  if (data.platformEntityName) updates.platformEntityName = data.platformEntityName;
-  if (data.config) {
-    updates.config = { ...(existing.config as object), ...data.config };
-  }
-
-  await db
-    .update(integrations)
-    .set(updates)
-    .where(eq(integrations.id, data.integrationId));
-
-  return { success: true };
-}
-
-export async function disconnectIntegration(integrationId: string) {
-  const session = await serverAuth.protect();
-
-  const [existing] = await db
-    .select({ communityId: integrations.communityId })
-    .from(integrations)
-    .where(eq(integrations.id, integrationId))
-    .limit(1);
-
-  if (!existing) throw new Error('Integration not found');
-  await ensureCommunityAdmin(session.userId, existing.communityId);
-
-  await db
-    .update(integrations)
-    .set({ status: 'disconnected', updatedAt: new Date() })
-    .where(eq(integrations.id, integrationId));
-
-  return { success: true };
-}
-
-export async function listIntegrations(communityId: string) {
-  return db
-    .select()
-    .from(integrations)
-    .where(eq(integrations.communityId, communityId));
-}
+/** Resolve the community bound to a platform channel (used by the inbound webhook route). */
+export async function resolveBoundCommunity(
+  platform: string,
+  externalRef: string,
+): Promise<{ communityId: string } | null>
 ```
+
+**Auth model:** `bindPlatformChannel` requires BOTH:
+1. `principal.ability.can('manage', 'PlatformChannel')` — CASL ability
+2. Community admin membership (checked via `memberRole()`)
+
+A platform superuser (`isPlatformAdmin(principal)`) bypasses the membership check for support/moderation.
+
+**Idempotency:** `bindPlatformChannel` is idempotent per `(platform, externalRef)`. A second call re-activates an existing binding rather than inserting a duplicate (the unique constraint on those two columns enforces this at the DB level).
+
+**Revocation:** `revokePlatformChannel` sets `status='revoked'`, fills `revokedAt`, and soft-deletes the row (`deletedAt`). The unique constraint means the channel is free to be bound to another community after revocation (or re-bound to the same one).
+
+**Webhook resolution:** `resolveBoundCommunity(platform, externalRef)` is the entry point for the inbound webhook route. It returns `{ communityId }` for active, non-deleted bindings only.
+
+**Do not use** `createIntegration`, `updateIntegration`, `disconnectIntegration`, or `listIntegrations` — those functions and the `integrations` table they targeted no longer exist.
 
 ---
 
@@ -677,37 +392,34 @@ Returns the `externalPlatforms` array for a given community.
 
 ## 9. Security
 
-1. **Community admin check** on all integration mutations (admin role required via `ensureCommunityAdmin`; founding user is always admin). Stewards can view integration status and activity but cannot connect/disconnect platforms.
-2. **No tokens stored for Tier 1/2.** Hookshot webhooks are outbound-only
-3. **Webhook URLs in config JSONB** — could be abused if DB is compromised; document that webhook URLs should use Hookshot's built-in HMAC authentication
-4. **Platform identities are member-controlled** — stored as traits with per-persona visibility settings
+1. **Community admin check** on all binding mutations — `bindPlatformChannel` and `revokePlatformChannel` require both the CASL `manage PlatformChannel` ability and community-admin membership (`memberRole() === 'admin'`). A platform superuser (`isPlatformAdmin`) bypasses the membership check for support/moderation.
+2. **Signature verification required in production** — the webhook route (`/api/channels/[platform]/webhook`) enforces platform signature verification whenever a secret is configured and always in production. See `packages/ai/src/platform-verify.ts` for Slack HMAC-SHA256, Discord Ed25519, and Telegram token verification.
+3. **Adapter config is opaque JSONB** — `adapterConfig` stores whatever the Mastra chat-adapter needs (tokens, workspace IDs, etc.). It is not encrypted at rest; if bot tokens require encryption, add a KMS-backed seam before storing.
+4. **Platform identities are member-controlled** — stored as traits with per-persona visibility settings.
 
 ---
 
 ## 10. Implementation Checklist
 
-Ordered for incremental shippability:
+Ordered for incremental shippability. Phases A–C are **shipped**; B–E remain future work.
 
-### Phase A: Foundation
-- [ ] Add constants to `lib/constants.ts` (platforms, statuses, platform types)
-- [ ] Fix stale `COMMUNITY_TYPES` constant
-- [ ] Add types to `types/index.ts` (ExternalPlatformLink, IntegrationConfig)
-- [ ] Create `lib/validations/integrations.ts`
-- [ ] Update `lib/validations/index.ts` barrel
+### Phase A: Constants + Schema + Service layer (shipped ✓)
+- [x] `PLATFORM_CHANNELS = ['slack', 'discord', 'telegram']` in `packages/constants/src/index.ts`
+- [x] `platform_channel_bindings` table in `packages/db/src/schema/platform-channels.ts`
+- [x] Service functions in `packages/db/src/services/platform-channels.ts`
+  - `bindPlatformChannel`, `listPlatformChannels`, `revokePlatformChannel`
+  - `listAllPlatformChannelBindings`, `resolveBoundCommunity`
+- [x] Webhook route `apps/web/app/api/channels/[platform]/webhook/route.ts`
+- [x] Signature verification `packages/ai/src/platform-verify.ts` (Slack/Discord/Telegram)
+- [x] `handlePlatformMessage` + `resolvePlatformChannels` in `packages/ai/src/platform-channels.ts`
 
-### Phase B: Schema
-- [ ] Refactor `lib/db/schema/integrations.ts` (generic columns + config JSONB + indexes)
-- [ ] Run `db:push`
-
-### Phase C: Server Actions
-- [ ] Create `app/actions/integrations.ts` (6 actions)
-
-### Phase D: UI
-- [ ] Create `components/platform-icons.tsx`
-- [ ] Create `components/platform-connection-step.tsx`
+### Phase B: External platform links UI (future)
+- [ ] Zod schema for `ExternalPlatformLink` (shape in §2 above; do NOT use `IntegrationConfig`)
+- [ ] Server actions for adding/removing `externalPlatforms` JSONB entries
+- [ ] `components/platform-icons.tsx`
+- [ ] `components/platform-connection-step.tsx`
 - [ ] Add Step 3 to community creation wizard
-- [ ] Create `integration-settings.tsx`
-- [ ] Add Connections tab to settings
+- [ ] `integration-settings.tsx` + Connections tab in settings
 
-### Phase E: MCP
+### Phase C: MCP extensions (future)
 - [ ] Extend `mcpListCommunities` with `externalPlatforms`

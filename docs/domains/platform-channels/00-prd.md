@@ -9,7 +9,7 @@ timestamp: 2026-02-23
 
 # Platform Integrations — Overview Spec
 
-> **Reconciliation note (2026-07-24):** The shipped build replaced the heavyweight `integrations` table with the lean `platform_channel_bindings` table (community_id, platform, external ref, installed_by, status, tokens). Mastra's first-class Channels own routing / threading / memory. `integrations`-table references below have been renamed; some surrounding prose still describes the pre-reconciliation design and is superseded by `packages/db/src/schema/platform-channels.ts`.
+> **Reconciliation note (2026-07-29):** The shipped build replaced the heavyweight `integrations` table with the lean `platform_channel_bindings` table. Mastra's first-class Channels own routing / threading / memory; we persist only the community→channel binding + opaque `adapterConfig` JSONB. The three bot platforms are **Slack, Discord, Telegram** (not Matrix — no Mastra Channels adapter for Matrix). Section 8 updated to reflect this. For column-level accuracy see `packages/db/src/schema/platform-channels.ts` and `01-shared-architecture.md §3`.
 
 > Date: 2026-02-23
 > Status: Draft — awaiting review
@@ -740,14 +740,20 @@ Platform connections use two complementary storage layers:
 
 ### Layer 2: Integration Records (`platform_channel_bindings` table)
 
-**Operational, stateful, for deeper integrations.** Separate table row with status, config, tokens, sync timestamps. Represents "Personus has an active operational connection to this platform."
+**Operational, stateful, for deeper integrations.** Separate table row with status, adapter config, and revocation timestamp. Represents "Personus has an active operational connection to this platform."
 
-- Created when: Platform supports deeper integration AND organizer opts in
-- Used for: Bot connections, webhook delivery, membership sync, activity observation
+- Created when: Platform supports a Mastra Channels adapter AND organizer opts in
+- Used for: Bot connections, webhook routing, community resolution for inbound messages
 - Cost: Requires monitoring, token management, error handling
-- **Only platforms with Tier 2+ capabilities get this layer** (Matrix, Discord, Slack today)
+- **Only the three bot platforms get this layer: Slack, Discord, Telegram** — Matrix community links live in `externalPlatforms` JSONB (no Mastra Channels adapter for Matrix)
 
-**Relationship:** A community may have an `externalPlatforms` entry without an `platform_channel_bindings` row (link only, no active integration). An `platform_channel_bindings` row should always have a corresponding `externalPlatforms` entry.
+**Schema highlights:**
+- `externalRef` — platform-native container id (Slack channel id, Discord guild/channel id, Telegram chat id). Unique together with `platform`.
+- `adapterConfig` — opaque JSONB; stores whatever the Mastra chat-adapter needs (tokens, workspace IDs, etc.) without schema churn.
+- `status` — `'pending' | 'active' | 'revoked'`. Revoked rows are soft-deleted (`deletedAt` set).
+- `installedBy` — `'user:<userId>'` tag (text, not a FK to users).
+
+**Relationship:** A community may have an `externalPlatforms` entry without a `platform_channel_bindings` row (link only, no active integration). A `platform_channel_bindings` row should always have a corresponding `externalPlatforms` entry.
 
 ---
 
