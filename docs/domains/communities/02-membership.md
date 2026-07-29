@@ -226,7 +226,7 @@ export const communityJoinRequests = pgTable('community_join_requests', {
 - No `reviewNote` — decline reason is delivered via notification, not persisted.
 - No separate `requestedAt` / `reviewedAt` — creation and update timestamps come from `baseFields`.
 - Soft-delete via `deletedAt` from `baseFields` (not a hard delete).
-- No `unique(userId, communityId)` constraint — idempotency is handled in the service layer by checking for an existing `pending` row, not by a DB constraint.
+- No `unique(userId, communityId)` constraint — idempotency is handled in the service layer by checking for an existing `pending` row before inserting, not by a DB constraint. **Known gap:** two concurrent requests from the same user could both pass the pending-row check and both insert (TOCTOU race). A partial unique index on `(communityId, requestingUserId)` WHERE `deleted_at IS NULL AND status = 'pending'` would make this atomic but is not yet in the schema.
 
 ---
 
@@ -235,71 +235,65 @@ export const communityJoinRequests = pgTable('community_join_requests', {
 ### 4.1 Join / Request to Join
 
 ```typescript
-joinCommunity(input: {
-  communityId: string;
-  personaId: string;
-  memberTraits?: Record<string, unknown>;
-  directoryOptIn?: boolean;   // Opt in to public directory (if community has one)
-})
-// For open communities: creates membership immediately
-// For approval communities: creates join request
-// For invite-only: rejects (must use acceptInvitation)
+// Shipped — open communities (joinPolicy: 'open')
+joinCommunityAction(formData)  // service: joinCommunity(principal, slug, personaUri)
+// Creates membership immediately. Throws ForbiddenError for non-open communities.
 
-requestToJoinCommunity(input: {
-  communityId: string;
-  personaId: string;
-  message?: string;
-  memberTraits?: Record<string, unknown>;
-})
-// Creates a pending join request. Only valid for approval-required communities.
+// Shipped — approval communities (joinPolicy: 'approval')
+requestToJoinAction(formData)  // service: requestToJoin(principal, slug, personaUri)
+// Creates a pending CommunityJoinRequest. Returns requestPublicId (cjr_*).
+// Idempotent: returns existing publicId if a pending request already exists.
+// No memberTraits parameter — see §3 "Differences from original design".
+
+// Shipped — invite_only communities (joinPolicy: 'invite_only')
+claimInvitationAction(formData)  // service: claimInvitation(principal, token, personaUri)
+// Claims a single-use inv_* token to join. Throws ForbiddenError if expired or already claimed.
 ```
 
-### 4.2 Review Requests (CO/Steward)
+**Planned (not shipped):** A unified `joinCommunity` action accepting `memberTraits` and
+`directoryOptIn` parameters. These fields are not in the shipped schema or service layer.
+
+### 4.2 Review Requests (community admin only)
 
 ```typescript
-listJoinRequests(communityId: string, status?: 'pending' | 'approved' | 'declined')
-// Returns paginated join requests. Steward+ role required.
+// Shipped
+listJoinRequests(principal, slug)
+// Returns pending CommunityJoinRequest rows. Community or platform admin only.
+// Returns: [{ publicId, personaUri, personaDisplayName, requestedAt }]
 
-reviewJoinRequest(input: {
-  requestId: string;
-  action: 'approve' | 'decline';
-  note?: string;
-})
-// Approve: creates membership, notifies CM
-// Decline: closes request, notifies CM with optional reason
+approveJoinRequestAction(formData)  // service: approveJoinRequest(principal, requestPublicId)
+// requestPublicId: cjr_* format (NOT a UUID — see §8 reviewJoinRequestSchema correction)
+// Creates membership + increments memberCount atomically. Notifies requester.
+// Idempotent: if user is already a member, only marks request approved.
+
+declineJoinRequestAction(formData)  // service: declineJoinRequest(principal, requestPublicId)
+// requestPublicId: cjr_* format
+// Marks request declined. Notifies requester via in-app notification.
+// No note parameter — decline reason is delivered via notification, not persisted.
 ```
 
 ### 4.3 Member Management
 
 ```typescript
-listCommunityMembers(communityId: string, options?: {
-  search?: string;        // Search by name, skills
-  role?: string;          // Filter by role
-  sortBy?: 'joined' | 'name' | 'endorsements';
-  limit?: number;
-  offset?: number;
-})
-// Returns paginated member list. Any member can list. Steward+ sees management actions.
+// Shipped
+listCommunityMembers(principal, slug)
+// Returns visible members: [{ uri, displayName, headline, location, completenessScore, role }].
+// Members-only (or platform admin). visible=true filter is applied.
 
-updateMemberRole(input: {
-  communityId: string;
-  memberId: string;       // community_members.id
-  newRole: 'member' | 'steward' | 'admin';
-})
-// Admin only. Cannot demote the founding user. Steward count checked against tier limits.
+getFeaturedMembers(principal, slug, limit?)
+// Returns top-endorsed visible members (default cap 6), ordered by endorsement count.
 
-removeMember(input: {
-  communityId: string;
-  memberId: string;
-  reason?: string;
-})
-// Admin/steward only. Cannot remove founding user. See 07-moderation.md for details.
+setMemberVisibilityAction(formData)  // service: setMemberVisibility(principal, slug, visible)
+// Toggles community_members.visible for the caller. See §6.1.
+```
 
-updateMemberTraits(input: {
-  communityId: string;
-  memberTraits: Record<string, unknown>;
-})
-// CM updates their own member traits. Validated against community's memberTraitSchema.
+**Planned (not shipped):**
+```typescript
+// updateMemberRole(communityId, memberId, newRole) — promote/demote
+//   Role column exists (member/steward/admin) but no server action is wired.
+// removeMember(communityId, memberId) — moderation removal. Not implemented (07-moderation.md).
+// updateMemberTraits(communityId, memberTraits) — memberTraits column does not exist
+//   in community_members; dependent on the memberTraitSchema feature.
 ```
 
 ### 4.4 Leave
@@ -313,12 +307,14 @@ leaveCommunity(communityId: string)
 ### 4.5 Switch Persona
 
 ```typescript
+// Planned (not shipped): switchCommunityPersona
 switchCommunityPersona(input: {
   communityId: string;
   newPersonaId: string;
 })
 // CM changes which persona they present to this community.
-// Member traits are preserved (they're on the membership, not the persona).
+// Member traits: the memberTraits column does not exist in the shipped schema, so
+//   trait preservation is moot until that feature is implemented.
 // Community-scoped endorsements remain attached to the membership, not the old persona.
 ```
 
@@ -485,27 +481,33 @@ Within a community context, members are displayed with their community-specific 
 ```typescript
 // lib/validations/communities.ts (additions)
 
+// Planned schema for the unified joinCommunity action (not yet shipped).
+// Shipped action uses formData with slug (community slug) and personaUri — no memberTraits.
 joinCommunitySchema = z.object({
-  communityId: z.string().uuid(),
-  personaId: z.string().uuid(),
-  memberTraits: z.record(z.unknown()).optional(),
+  communityId: z.string().uuid(),   // planned; shipped uses slug (community slug)
+  personaId: z.string().uuid(),     // planned; shipped uses personaUri
+  // memberTraits: planned — community_members has no memberTraits column yet
   // directoryOptIn: planned — not yet implemented
 });
 
 // Planned (not shipped): updateDirectoryOptInSchema for public directory opt-in
 // Current: visibility toggle is handled by setMemberVisibility (no Zod schema; slug + bool)
 
+// Planned schema for requestToJoin (not yet shipped as a schema).
+// Shipped requestToJoinAction uses formData with slug and personaUri only — no memberTraits.
 joinRequestSchema = z.object({
-  communityId: z.string().uuid(),
-  personaId: z.string().uuid(),
-  message: z.string().max(1000).optional(),
-  memberTraits: z.record(z.unknown()).optional(),
+  communityId: z.string().uuid(),   // planned; shipped uses slug
+  personaId: z.string().uuid(),     // planned; shipped uses personaUri
+  message: z.string().max(1000).optional(),   // planned; not in shipped requestToJoin
+  // memberTraits: planned — not in shipped schema
 });
 
+// Shipped API has separate approve/decline actions, not a unified reviewJoinRequest.
+// requestPublicId is cjr_<nanoid17> format — NOT a UUID. z.string().uuid() would reject it.
 reviewJoinRequestSchema = z.object({
-  requestId: z.string().uuid(),
+  requestPublicId: z.string().regex(/^cjr_/),  // cjr_* publicId, not a UUID
   action: z.enum(['approve', 'decline']),
-  note: z.string().max(500).optional(),
+  // note: not persisted; decline reason is sent as in-app notification only
 });
 
 updateMemberRoleSchema = z.object({
